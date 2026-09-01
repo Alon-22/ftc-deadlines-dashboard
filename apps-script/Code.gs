@@ -130,9 +130,9 @@ function handleRead_(params) {
     if (!sheet) return;
     var table = readSheetRows_(sheet, cfg.columns.goal);
     table.rows.forEach(function(row) {
-      var goal = cell_(row, table.headerIndex, cfg.columns.goal);
+      var goal = textCell_(row, table.headerIndex, cfg.columns.goal);
       if (!goal) return;
-      var owner = cell_(row, table.headerIndex, cfg.columns.owner);
+      var owner = textCell_(row, table.headerIndex, cfg.columns.owner);
       var isMentorOwned = cfg.subtype === 'personal' && ownerIsMentor_(owner, mentors);
       if (view === 'student' && isMentorOwned) return; // keep mentor thinking off the student view
 
@@ -143,10 +143,10 @@ function handleRead_(params) {
         id: cell_(row, table.headerIndex, ROW_ID_COLUMN),
         title: goal,
         owner: owner,
-        group: cell_(row, table.headerIndex, cfg.columns.group),
+        group: textCell_(row, table.headerIndex, cfg.columns.group),
         targetDate: targetDate ? targetDate.toISOString() : null,
-        status: cell_(row, table.headerIndex, cfg.columns.status),
-        notes: cell_(row, table.headerIndex, cfg.columns.lastUpdate),
+        status: textCell_(row, table.headerIndex, cfg.columns.status),
+        notes: textCell_(row, table.headerIndex, cfg.columns.lastUpdate),
         daysLeft: daysLeft_(now, targetDate),
         workHoursLeft: workHoursLeft_(calendar, now, targetDate, hoursCache),
         isMentorOwned: isMentorOwned,
@@ -159,19 +159,19 @@ function handleRead_(params) {
   if (deadlinesSheet) {
     var dTable = readSheetRows_(deadlinesSheet, 'Event name');
     dTable.rows.forEach(function(row) {
-      var title = cell_(row, dTable.headerIndex, 'Event name');
+      var title = textCell_(row, dTable.headerIndex, 'Event name');
       if (!title) return;
       var targetDate = toDate_(cell_(row, dTable.headerIndex, 'Date'));
       items.push({
         type: 'deadline',
-        subtype: cell_(row, dTable.headerIndex, 'Type') || 'Other',
+        subtype: textCell_(row, dTable.headerIndex, 'Type') || 'Other',
         id: cell_(row, dTable.headerIndex, ROW_ID_COLUMN),
         title: title,
         owner: '',
         group: '',
         targetDate: targetDate ? targetDate.toISOString() : null,
         status: '',
-        notes: cell_(row, dTable.headerIndex, 'Notes'),
+        notes: textCell_(row, dTable.headerIndex, 'Notes'),
         daysLeft: daysLeft_(now, targetDate),
         workHoursLeft: workHoursLeft_(calendar, now, targetDate, hoursCache),
         isMentorOwned: false,
@@ -194,12 +194,12 @@ function readMentorNotes_(ss) {
   var table = readSheetRows_(sheet, 'Note');
   var notes = [];
   table.rows.forEach(function(row) {
-    var note = cell_(row, table.headerIndex, 'Note');
+    var note = textCell_(row, table.headerIndex, 'Note');
     if (!note) return;
     var date = toDate_(cell_(row, table.headerIndex, 'Date'));
     notes.push({
       id: cell_(row, table.headerIndex, ROW_ID_COLUMN),
-      mentor: cell_(row, table.headerIndex, 'Mentor'),
+      mentor: textCell_(row, table.headerIndex, 'Mentor'),
       note: note,
       date: date ? date.toISOString() : null,
     });
@@ -353,6 +353,21 @@ function cell_(row, headerIndex, name) {
   if (idx === undefined) return '';
   var v = row.raw[idx];
   return v === null || v === undefined ? '' : v;
+}
+
+/**
+ * Like cell_, but for fields that are always meant to be plain text (notes,
+ * status, names, titles). Sheets stores time-only entries (e.g. someone
+ * typing "1:30") as a Date on its 1899-12-30 epoch, which would otherwise
+ * leak through JSON.stringify as a garbage ISO timestamp.
+ */
+function textCell_(row, headerIndex, name) {
+  var v = cell_(row, headerIndex, name);
+  if (v instanceof Date) {
+    var pattern = v.getFullYear() <= 1899 ? 'h:mm a' : 'yyyy-MM-dd';
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), pattern);
+  }
+  return v;
 }
 
 function setCell_(sheet, rowNum, headerIndex, name, value, headerRowNum) {
