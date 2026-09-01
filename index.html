@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FTC Deadlines</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>FTC Deadlines</h1>
+  <div class="header-controls">
+    <select id="team-select"></select>
+  </div>
+</header>
+
+<main id="main">
+  <section class="group">
+    <h2>Competitions &amp; key dates</h2>
+    <div class="card-list" id="deadlines-list"></div>
+    <details>
+      <summary>Add a competition or deadline</summary>
+      <form class="add-form" id="add-deadline-form">
+        <div class="row">
+          <input type="text" name="title" placeholder="Event name" required>
+          <input type="date" name="targetDate" required>
+        </div>
+        <div class="row">
+          <select name="eventType">
+            <option>Competition</option>
+            <option>Registration</option>
+            <option>Ship date</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <textarea name="notes" placeholder="Notes (optional)"></textarea>
+        <button type="submit">Add</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="group">
+    <h2>Team goals</h2>
+    <div class="card-list" id="team-goals-list"></div>
+  </section>
+
+  <section class="group">
+    <h2>Personal goals</h2>
+    <div class="card-list" id="personal-goals-list"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>window.DASHBOARD_VIEW = 'student';</script>
+<script src="config/teams.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
