@@ -43,7 +43,7 @@
     if (el.red) {
       var red = goals.filter(function (g) { return normalizedStatus(g) === 'Red'; });
       red.sort(function (a, b) { return (a.daysLeft == null ? 0 : a.daysLeft) - (b.daysLeft == null ? 0 : b.daysLeft); });
-      renderBucket(el.red, red, 'Nothing flagged red right now.');
+      renderBucket(el.red, red, 'Nothing stuck or slipping right now.');
     }
 
     if (el.doneLastWeek) renderDoneLastWeek(el.doneLastWeek, goals, data.seasonLog || []);

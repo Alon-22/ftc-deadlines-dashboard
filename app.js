@@ -47,6 +47,8 @@
     if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
     if (el.addGoalForm) el.addGoalForm.addEventListener('submit', onAddGoal);
     if (el.addNoteForm) el.addNoteForm.addEventListener('submit', onAddNote);
+    if (el.addGoalOwner) el.addGoalOwner.addEventListener('change', function () { toggleOther(el.addGoalOwner, el.addGoalOwnerOther); });
+    if (el.addGoalGroup) el.addGoalGroup.addEventListener('change', function () { toggleOther(el.addGoalGroup, el.addGoalGroupOther); });
 
     if (VIEW === 'mentor' && !state.passcode) {
       showGate();
@@ -64,6 +66,10 @@
     el.mentorNotesList = document.getElementById('mentor-notes-list');
     el.addDeadlineForm = document.getElementById('add-deadline-form');
     el.addGoalForm = document.getElementById('add-goal-form');
+    el.addGoalOwner = document.getElementById('add-goal-owner');
+    el.addGoalOwnerOther = document.getElementById('add-goal-owner-other');
+    el.addGoalGroup = document.getElementById('add-goal-group');
+    el.addGoalGroupOther = document.getElementById('add-goal-group-other');
     el.addNoteForm = document.getElementById('add-note-form');
     el.gate = document.getElementById('gate');
     el.gateInput = document.getElementById('gate-passcode');
@@ -188,6 +194,62 @@
     if (el.personalGoalsList) renderList(el.personalGoalsList, personalGoals, 'No personal goals yet.');
 
     if (el.mentorNotesList) renderNotes(el.mentorNotesList, state.data.mentorNotes || []);
+    populateAddGoalOptions(items);
+  }
+
+  // Dropdowns for the "add a new goal" form are built from names/subteams
+  // already seen in the data, so picking one is the fast path and typing a
+  // brand new one (via "Other") stays possible without a backend change.
+  function populateAddGoalOptions(items) {
+    if (el.addGoalOwner) {
+      var owners = {};
+      items.forEach(function (i) {
+        (i.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (n) { owners[n] = true; });
+      });
+      fillSelect(el.addGoalOwner, Object.keys(owners).sort(), 'Select your name…');
+    }
+    if (el.addGoalGroup) {
+      var groups = {};
+      items.forEach(function (i) { if (i.group) groups[i.group] = true; });
+      fillSelect(el.addGoalGroup, Object.keys(groups).sort(), 'Select subteam / skill area…');
+    }
+  }
+
+  function fillSelect(select, values, placeholder) {
+    var current = select.value;
+    select.innerHTML = '';
+    var placeholderOpt = document.createElement('option');
+    placeholderOpt.value = '';
+    placeholderOpt.textContent = placeholder;
+    select.appendChild(placeholderOpt);
+    values.forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
+    });
+    var otherOpt = document.createElement('option');
+    otherOpt.value = '__other__';
+    otherOpt.textContent = 'Other (type below)…';
+    select.appendChild(otherOpt);
+    if (current && (values.indexOf(current) !== -1 || current === '__other__')) select.value = current;
+  }
+
+  function toggleOther(select, otherInput) {
+    var isOther = select.value === '__other__';
+    otherInput.style.display = isOther ? '' : 'none';
+    if (isOther) otherInput.focus();
+    else otherInput.value = '';
+  }
+
+  function resolveOwnerGroup() {
+    var owner = el.addGoalOwner
+      ? (el.addGoalOwner.value === '__other__' ? el.addGoalOwnerOther.value.trim() : el.addGoalOwner.value)
+      : '';
+    var group = el.addGoalGroup
+      ? (el.addGoalGroup.value === '__other__' ? el.addGoalGroupOther.value.trim() : el.addGoalGroup.value)
+      : '';
+    return { owner: owner, group: group };
   }
 
   function renderList(container, items, emptyText) {
@@ -433,16 +495,22 @@
   function onAddGoal(e) {
     e.preventDefault();
     var form = e.target;
+    var ownerGroup = resolveOwnerGroup();
     var fields = {
       title: form.title.value.trim(),
-      owner: form.owner.value.trim(),
-      group: form.group.value.trim(),
+      owner: ownerGroup.owner,
+      group: ownerGroup.group,
       targetDate: form.targetDate.value,
     };
     if (!fields.title || !fields.owner) return toast('Goal and your name are required');
     withPasscode(function () {
       post('addPersonalGoal', null, fields, function (ok) {
-        if (ok) { form.reset(); load(); }
+        if (ok) {
+          form.reset();
+          if (el.addGoalOwnerOther) el.addGoalOwnerOther.style.display = 'none';
+          if (el.addGoalGroupOther) el.addGoalGroupOther.style.display = 'none';
+          load();
+        }
       });
     });
   }

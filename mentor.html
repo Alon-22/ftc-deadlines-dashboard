@@ -21,7 +21,8 @@
 </div>
 
 <nav class="tab-bar">
-  <button class="tab-btn" data-tab="deadlines">Deadlines</button>
+  <button class="tab-btn" data-tab="team-goals">Team Goals</button>
+  <button class="tab-btn" data-tab="personal-goals">Personal Goals</button>
   <button class="tab-btn" data-tab="todo">To-Do</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
@@ -30,44 +31,12 @@
 </nav>
 
 <main id="main">
-  <div class="tab-panel" data-tab="deadlines">
+  <div class="tab-panel" data-tab="team-goals">
     <div class="deadlines-layout">
       <div class="deadlines-main">
         <section class="group">
           <h2>Team goals</h2>
           <div class="card-list" id="team-goals-list"></div>
-        </section>
-
-        <section class="group">
-          <h2>Personal &amp; mentor goals</h2>
-          <div class="card-list" id="personal-goals-list"></div>
-          <details>
-            <summary><strong>+ Add a goal</strong> (yours, or on a mentee's behalf)</summary>
-            <form class="add-form" id="add-goal-form">
-              <div class="row">
-                <input type="text" name="owner" placeholder="Your name" required>
-                <input type="text" name="group" placeholder="Subteam / skill area">
-              </div>
-              <div class="row">
-                <input type="text" name="title" placeholder="Goal (one sentence)" required>
-                <input type="date" name="targetDate">
-              </div>
-              <button type="submit">Add goal</button>
-            </form>
-          </details>
-        </section>
-
-        <section class="group">
-          <h2>Mentor notes</h2>
-          <p class="card-meta">Free-form thinking between meetings — the head coach reads these.</p>
-          <div id="mentor-notes-list"></div>
-          <form class="add-form" id="add-note-form">
-            <div class="row">
-              <input type="text" name="mentor" placeholder="Your name" required>
-            </div>
-            <textarea name="note" placeholder="What are you thinking about right now?" required></textarea>
-            <button type="submit">Add note</button>
-          </form>
         </section>
       </div>
 
@@ -95,6 +64,50 @@
         </details>
       </aside>
     </div>
+  </div>
+
+  <div class="tab-panel" data-tab="personal-goals">
+    <section class="group">
+      <h2>Personal &amp; mentor goals</h2>
+      <div class="card-list" id="personal-goals-list"></div>
+      <details>
+        <summary><strong>+ Add a goal</strong> (yours, or on a mentee's behalf)</summary>
+        <form class="add-form" id="add-goal-form">
+          <div class="row">
+            <select id="add-goal-owner" required>
+              <option value="">Select a name…</option>
+              <option value="__other__">Other (type below)…</option>
+            </select>
+            <input type="text" id="add-goal-owner-other" placeholder="Type a name" style="display:none;">
+          </div>
+          <div class="row">
+            <select id="add-goal-group">
+              <option value="">Select subteam / skill area…</option>
+              <option value="__other__">Other (type below)…</option>
+            </select>
+            <input type="text" id="add-goal-group-other" placeholder="Type subteam / skill area" style="display:none;">
+          </div>
+          <div class="row">
+            <input type="text" name="title" placeholder="Goal (one sentence)" required>
+            <input type="date" name="targetDate">
+          </div>
+          <button type="submit">Add goal</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="group">
+      <h2>Mentor notes</h2>
+      <p class="card-meta">Free-form thinking between meetings — the head coach reads these.</p>
+      <div id="mentor-notes-list"></div>
+      <form class="add-form" id="add-note-form">
+        <div class="row">
+          <input type="text" name="mentor" placeholder="Your name" required>
+        </div>
+        <textarea name="note" placeholder="What are you thinking about right now?" required></textarea>
+        <button type="submit">Add note</button>
+      </form>
+    </section>
   </div>
 
   <div class="tab-panel" data-tab="todo">
@@ -146,8 +159,8 @@
       <h2>Overdue</h2>
       <div class="card-list" id="checkin-overdue"></div>
     </section>
-    <section class="group">
-      <h2>Needs attention (Red)</h2>
+    <section class="group group-alert">
+      <h2>⚠ Stuck or slipping</h2>
       <div class="card-list" id="checkin-red"></div>
     </section>
     <section class="group">

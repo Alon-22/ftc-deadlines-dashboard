@@ -103,6 +103,19 @@ section.group h2 {
   margin: 0 0 10px;
 }
 
+/* Stuck/slipping goals in Check-In — a visually distinct callout instead of
+   just another stacked section, so it reads as "look here" at a glance. */
+section.group.group-alert {
+  background: var(--red-bg);
+  border: 1px solid var(--red);
+  border-radius: 10px;
+  padding: 14px 16px 18px;
+}
+
+section.group.group-alert h2 {
+  color: var(--red);
+}
+
 .filters {
   display: flex;
   gap: 8px;
@@ -112,7 +125,13 @@ section.group h2 {
 
 .card-list {
   display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-items: start;
   gap: 10px;
+}
+
+.card-list.compact {
+  grid-template-columns: 1fr;
 }
 
 .card {
