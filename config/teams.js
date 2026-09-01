@@ -6,9 +6,9 @@
 // and never stored in this file or in git.
 
 window.TEAMS = [
-  // {
-  //   key: 'example',
-  //   label: 'Example FTC Team',
-  //   webAppUrl: 'https://script.google.com/macros/s/XXXXXXXXXXXX/exec',
-  // },
+  {
+    key: 'mysterymeat20406',
+    label: 'Mystery Meat (20406)',
+    webAppUrl: 'https://script.google.com/macros/s/AKfycbyxtnnrlnMSYOyb8Q4QaGtWvRbnAtj2cehCUTmmtVwe1rllrsm4ZBc56enLSEwGaP86cw/exec',
+  },
 ];

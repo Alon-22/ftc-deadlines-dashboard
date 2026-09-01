@@ -15,14 +15,24 @@ One Apps Script project serves every team's dashboard. Do this once, then repeat
 2. In `Code.gs`, add an entry to `TEAMS`:
    ```js
    const TEAMS = {
-     redteam: { sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY', calendarId: null },
+     redteam: {
+       sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
+       calendarId: null,
+       mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in the goal-owner columns
+     },
    };
    ```
    The key (`redteam` here) is what the frontend's `config/teams.js` will reference.
+   `mentors` is used to keep mentor-owned personal goals off the student view —
+   list the names exactly as they'll be typed into the "Whose goal" column.
 3. Save, then run `setupAllTeams` once from the editor's function dropdown (▶ Run).
    The first run asks you to authorize the script — this is expected, since it
    needs edit access to the sheet. It creates the "Competitions & Deadlines"
-   and "Mentor Notes" tabs and backfills the hidden Row ID column.
+   and "Mentor Notes" tabs and backfills the hidden Row ID column, locating the
+   real header row automatically even if there are title/instruction rows
+   above it. It's safe to run again any time (e.g. after editing `Code.gs`) —
+   it detects and repairs a Row ID column from a previous run rather than
+   duplicating it.
 
 ## 3. Set passcodes
 

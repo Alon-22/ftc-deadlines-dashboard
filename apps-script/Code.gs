@@ -25,6 +25,7 @@ const TEAMS = {
   // example: {
   //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
   //   calendarId: null, // fill in once the work-sessions calendar is shared
+  //   mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
   // },
 };
 
@@ -67,8 +68,6 @@ const MENTOR_NOTES_TAB = 'Mentor Notes';
 const MENTOR_NOTES_COLUMNS = ['Date', 'Mentor', 'Note', 'Row ID'];
 
 const ROW_ID_COLUMN = 'Row ID';
-const MENTORS_TAB = 'Students, Mentors, Sub Teams'; // adjust if your reference tab is named differently
-const MENTORS_HEADER = 'Mentors';
 
 // Editable fields on goal tabs — anything else (Days left formulas, dates,
 // goal text) is left alone by writes.
@@ -116,7 +115,7 @@ function handleRead_(params) {
   var now = new Date();
   var calendar = team.calendarId ? safeGetCalendar_(team.calendarId) : null;
   var hoursCache = {};
-  var mentors = readMentorList_(ss);
+  var mentors = team.mentors || [];
 
   var items = [];
 
@@ -124,7 +123,7 @@ function handleRead_(params) {
   GOAL_TAB_CONFIGS.forEach(function(cfg) {
     var sheet = ss.getSheetByName(cfg.sheetName);
     if (!sheet) return;
-    var table = readSheetRows_(sheet);
+    var table = readSheetRows_(sheet, cfg.columns.goal);
     table.rows.forEach(function(row) {
       var goal = cell_(row, table.headerIndex, cfg.columns.goal);
       if (!goal) return;
@@ -153,7 +152,7 @@ function handleRead_(params) {
   // Competitions & Deadlines
   var deadlinesSheet = ss.getSheetByName(DEADLINES_TAB);
   if (deadlinesSheet) {
-    var dTable = readSheetRows_(deadlinesSheet);
+    var dTable = readSheetRows_(deadlinesSheet, 'Event name');
     dTable.rows.forEach(function(row) {
       var title = cell_(row, dTable.headerIndex, 'Event name');
       if (!title) return;
@@ -187,7 +186,7 @@ function handleRead_(params) {
 function readMentorNotes_(ss) {
   var sheet = ss.getSheetByName(MENTOR_NOTES_TAB);
   if (!sheet) return [];
-  var table = readSheetRows_(sheet);
+  var table = readSheetRows_(sheet, 'Note');
   var notes = [];
   table.rows.forEach(function(row) {
     var note = cell_(row, table.headerIndex, 'Note');
@@ -245,7 +244,7 @@ function updateGoal_(ss, rowId, fields) {
     var cfg = GOAL_TAB_CONFIGS[i];
     var sheet = ss.getSheetByName(cfg.sheetName);
     if (!sheet) continue;
-    var table = readSheetRows_(sheet);
+    var table = readSheetRows_(sheet, cfg.columns.goal);
     var match = table.rows.filter(function(row) {
       return cell_(row, table.headerIndex, ROW_ID_COLUMN) === rowId;
     })[0];
@@ -254,7 +253,7 @@ function updateGoal_(ss, rowId, fields) {
     EDITABLE_GOAL_FIELDS.forEach(function(field) {
       if (!(field in fields)) return;
       var headerName = cfg.columns[field];
-      setCell_(sheet, match.rowNum, table.headerIndex, headerName, fields[field]);
+      setCell_(sheet, match.rowNum, table.headerIndex, headerName, fields[field], table.headerRowNum);
     });
     return { ok: true };
   }
@@ -279,13 +278,13 @@ function addDeadline_(ss, fields) {
 function updateDeadline_(ss, rowId, fields) {
   var sheet = ss.getSheetByName(DEADLINES_TAB);
   if (!sheet || !rowId) return { ok: false, error: 'Row not found' };
-  var table = readSheetRows_(sheet);
+  var table = readSheetRows_(sheet, 'Event name');
   var match = table.rows.filter(function(row) {
     return cell_(row, table.headerIndex, ROW_ID_COLUMN) === rowId;
   })[0];
   if (!match) return { ok: false, error: 'Row not found: ' + rowId };
-  if ('notes' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Notes', fields.notes);
-  if ('status' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Type', fields.status);
+  if ('notes' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Notes', fields.notes, table.headerRowNum);
+  if ('status' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Type', fields.status, table.headerRowNum);
   return { ok: true };
 }
 
@@ -293,10 +292,10 @@ function addPersonalGoal_(ss, fields) {
   var sheet = ss.getSheetByName('Personal Goals');
   if (!sheet) return { ok: false, error: 'Missing "Personal Goals" tab' };
   if (!fields.title || !fields.owner) return { ok: false, error: 'title and owner are required' };
-  var table = readSheetRows_(sheet);
+  var cfg = GOAL_TAB_CONFIGS.filter(function(c) { return c.sheetName === 'Personal Goals'; })[0];
+  var table = readSheetRows_(sheet, cfg.columns.goal);
   var id = Utilities.getUuid();
   var row = [];
-  var cfg = GOAL_TAB_CONFIGS.filter(function(c) { return c.sheetName === 'Personal Goals'; })[0];
   var lastCol = Math.max.apply(null, Object.keys(table.headerIndex).map(function(h) { return table.headerIndex[h]; })) + 1;
   for (var i = 0; i < lastCol; i++) row.push('');
   row[table.headerIndex[cfg.columns.goal]] = fields.title;
@@ -321,16 +320,27 @@ function addMentorNote_(ss, fields) {
 
 // ===== Sheet helpers ========================================================
 
-function readSheetRows_(sheet) {
+/**
+ * Reads a sheet's data, locating the header row by searching for a known
+ * column name rather than assuming row 1 — some tabs (e.g. Team Goals,
+ * Personal Goals) have title/instruction rows above the real header.
+ */
+function readSheetRows_(sheet, anchorHeader) {
   var values = sheet.getDataRange().getValues();
-  var headers = values[0] || [];
+  var headerRowIdx = 0;
+  if (anchorHeader) {
+    for (var i = 0; i < values.length; i++) {
+      if (values[i].indexOf(anchorHeader) !== -1) { headerRowIdx = i; break; }
+    }
+  }
+  var headers = values[headerRowIdx] || [];
   var headerIndex = {};
   headers.forEach(function(h, i) { if (h) headerIndex[h] = i; });
   var rows = [];
-  for (var r = 1; r < values.length; r++) {
+  for (var r = headerRowIdx + 1; r < values.length; r++) {
     rows.push({ rowNum: r + 1, raw: values[r] });
   }
-  return { headerIndex: headerIndex, rows: rows };
+  return { headerIndex: headerIndex, headerRowNum: headerRowIdx + 1, rows: rows };
 }
 
 function cell_(row, headerIndex, name) {
@@ -340,15 +350,15 @@ function cell_(row, headerIndex, name) {
   return v === null || v === undefined ? '' : v;
 }
 
-function setCell_(sheet, rowNum, headerIndex, name, value) {
+function setCell_(sheet, rowNum, headerIndex, name, value, headerRowNum) {
   var idx = headerIndex[name];
-  if (idx === undefined) idx = ensureColumn_(sheet, name, headerIndex);
+  if (idx === undefined) idx = ensureColumnAt_(sheet, headerRowNum || 1, name, headerIndex);
   sheet.getRange(rowNum, idx + 1).setValue(value);
 }
 
-function ensureColumn_(sheet, name, headerIndex) {
+function ensureColumnAt_(sheet, headerRowNum, name, headerIndex) {
   var col = sheet.getLastColumn() + 1;
-  sheet.getRange(1, col).setValue(name);
+  sheet.getRange(headerRowNum, col).setValue(name);
   headerIndex[name] = col - 1;
   return col - 1;
 }
@@ -390,22 +400,6 @@ function workHoursLeft_(calendar, now, targetDate, cache) {
   return hours;
 }
 
-function readMentorList_(ss) {
-  var sheet = ss.getSheetByName(MENTORS_TAB);
-  if (!sheet) return [];
-  var table = readSheetRows_(sheet);
-  var idx = table.headerIndex[MENTORS_HEADER];
-  if (idx === undefined) return [];
-  var mentors = [];
-  table.rows.forEach(function(row) {
-    var v = row.raw[idx];
-    if (v && String(v).trim() && String(v).trim().toLowerCase() !== 'not assigned') {
-      mentors.push(String(v).trim());
-    }
-  });
-  return mentors;
-}
-
 function ownerIsMentor_(owner, mentors) {
   if (!owner) return false;
   var names = String(owner).split(',').map(function(s) { return s.trim(); });
@@ -444,12 +438,12 @@ function setupTeamSheet_(sheetId) {
 
   GOAL_TAB_CONFIGS.forEach(function(cfg) {
     var sheet = ss.getSheetByName(cfg.sheetName);
-    if (sheet) backfillRowIds_(sheet);
+    if (sheet) backfillRowIds_(sheet, cfg.columns.goal);
   });
   var deadlinesSheet = ss.getSheetByName(DEADLINES_TAB);
-  if (deadlinesSheet) backfillRowIds_(deadlinesSheet);
+  if (deadlinesSheet) backfillRowIds_(deadlinesSheet, 'Event name');
   var notesSheet = ss.getSheetByName(MENTOR_NOTES_TAB);
-  if (notesSheet) backfillRowIds_(notesSheet);
+  if (notesSheet) backfillRowIds_(notesSheet, 'Note');
 }
 
 function ensureTab_(ss, name, columns) {
@@ -461,10 +455,36 @@ function ensureTab_(ss, name, columns) {
   return sheet;
 }
 
-function backfillRowIds_(sheet) {
-  var table = readSheetRows_(sheet);
+/**
+ * Undoes a stray Row ID column from a prior run that mislocated the header
+ * row (e.g. because a title/instructions row sat above it): if "Row ID"
+ * appears anywhere OTHER than the real header row, that whole column is
+ * cleared so backfillRowIds_ can add it correctly. Safe to call repeatedly —
+ * a correctly-placed Row ID column is left untouched.
+ */
+function repairStrayRowIdColumn_(sheet, anchorHeader) {
+  var values = sheet.getDataRange().getValues();
+  var headerRowIdx = 0;
+  if (anchorHeader) {
+    for (var i = 0; i < values.length; i++) {
+      if (values[i].indexOf(anchorHeader) !== -1) { headerRowIdx = i; break; }
+    }
+  }
+  for (var r = 0; r < values.length; r++) {
+    if (r === headerRowIdx) continue;
+    var col = values[r].indexOf(ROW_ID_COLUMN);
+    if (col !== -1) {
+      sheet.getRange(1, col + 1, sheet.getMaxRows(), 1).clearContent();
+      return;
+    }
+  }
+}
+
+function backfillRowIds_(sheet, anchorHeader) {
+  repairStrayRowIdColumn_(sheet, anchorHeader);
+  var table = readSheetRows_(sheet, anchorHeader);
   var idx = table.headerIndex[ROW_ID_COLUMN];
-  if (idx === undefined) idx = ensureColumn_(sheet, ROW_ID_COLUMN, table.headerIndex);
+  if (idx === undefined) idx = ensureColumnAt_(sheet, table.headerRowNum, ROW_ID_COLUMN, table.headerIndex);
   table.rows.forEach(function(row) {
     var firstCellHasContent = row.raw.some(function(v) { return v !== '' && v !== null; });
     if (!firstCellHasContent) return;
