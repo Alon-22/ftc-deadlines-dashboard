@@ -1,13 +1,29 @@
 # FTC Deadlines Dashboard
 
-A small dashboard for FTC teams: countdowns to competitions and goal
-deadlines (in both calendar days and work hours), synced both ways with
-each team's Google Sheet. No separate database — the Sheet is the store.
+A front end for FTC teams' Google Sheet: countdowns to competitions and
+goal deadlines (in both calendar days and work hours), a drag-to-reschedule
+Gantt timeline, a weekly check-in scoreboard, season-long analytics, and a
+lightweight metric builder — synced both ways with the Sheet. No separate
+database — the Sheet is the store.
 
-- **`index.html`** — student view. Open link, no login. Countdowns +
-  editable notes/status.
+- **`index.html`** — student view. Open link, no login.
 - **`mentor.html`** — mentor/coach view. Passcode-gated. Mentors' own goals
   plus a free-form notes log the head coach reads.
+- Both views share five tabs:
+  - **Deadlines** — countdown cards, editable notes/status.
+  - **Timeline** — a Gantt chart (drag a bar to reschedule it) and a
+    Priority list per goal tab (drag or use the arrows to reorder,
+    independent of dates).
+  - **Check-In** — the status scoreboard and per-subteam breakdown,
+    computed live from the same data shown on Deadlines.
+  - **Season** — the Sheet's Season Log as a browsable table, plus trend
+    charts (completions per month, on-time vs late, per-subteam).
+  - **Metrics** — build and save a simple group-by/filter view over Goals
+    or the Season Log; saved views are shared with the whole team.
+- **`app.js`** — core: fetch/state/passcode, tabs, the Deadlines cards. It
+  exposes `window.DB`, the shared surface `gantt.js`/`checkin.js`/
+  `season.js`/`metrics.js`/`charts.js` use to reach the same data and
+  write helpers without a bundler.
 - **`apps-script/`** — the sync backend (Google Apps Script Web App). See
   [`apps-script/README.md`](apps-script/README.md) for deploy steps.
 - **`config/teams.js`** — maps each team to its deployed backend URL.
@@ -33,10 +49,18 @@ deployed Apps Script Web App URL — see `apps-script/README.md`.
 
 ## Notes
 
-- Days-left and formulas already in the Sheet (Gantt, Weekly Check-In,
-  Season Log, Subteam View) are untouched — this only reads/writes the
-  Team Goals, Personal Goals, Competitions & Deadlines, and Mentor Notes
-  tabs.
+- Days-left stays a Sheet formula, never written to. The Sheet's own Gantt,
+  Weekly Check-In, and Subteam View tabs are untouched — this dashboard
+  recomputes those views itself from Team Goals/Personal Goals rather than
+  depending on their formula layout, so the Sheet's own tabs and the
+  dashboard can't drift out of sync with each other. It does read the
+  Season Log tab, and reads/writes Team Goals, Personal Goals, Competitions
+  & Deadlines, Mentor Notes, and a new Dashboard Views tab (for saved
+  metrics/filters).
+- Dragging a Gantt bar writes Start date/Target date back to the Sheet.
+  Dragging in a Priority list writes a new "Priority Order" column that's
+  independent of dates — added and self-healed the same way the hidden
+  Row ID column is.
 - Passcodes are shared secrets typed into the browser each session
   (`sessionStorage`, never written to disk or git) — a light deterrent, not
   real auth. Don't put anything in Mentor Notes you wouldn't want visible

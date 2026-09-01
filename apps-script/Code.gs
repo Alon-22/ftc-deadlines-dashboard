@@ -36,6 +36,9 @@ const TEAMS = {
 
 // ===== Sheet schema ========================================================
 
+const ROW_ID_COLUMN = 'Row ID';
+const PRIORITY_ORDER_COLUMN = 'Priority Order';
+
 const GOAL_TAB_CONFIGS = [
   {
     sheetName: 'Team Goals',
@@ -48,6 +51,7 @@ const GOAL_TAB_CONFIGS = [
       targetDate: 'Target date',
       status: 'Status',
       lastUpdate: 'Last update (what moved)',
+      priorityOrder: PRIORITY_ORDER_COLUMN,
     },
   },
   {
@@ -61,6 +65,7 @@ const GOAL_TAB_CONFIGS = [
       targetDate: 'Target date',
       status: 'Status',
       lastUpdate: 'Last update (what moved)',
+      priorityOrder: PRIORITY_ORDER_COLUMN,
     },
   },
 ];
@@ -72,11 +77,16 @@ const DEADLINES_TYPES = ['Competition', 'Registration', 'Ship date', 'Other'];
 const MENTOR_NOTES_TAB = 'Mentor Notes';
 const MENTOR_NOTES_COLUMNS = ['Date', 'Mentor', 'Note', 'Row ID'];
 
-const ROW_ID_COLUMN = 'Row ID';
+const SEASON_LOG_TAB = 'Season Log';
 
-// Editable fields on goal tabs — anything else (Days left formulas, dates,
-// goal text) is left alone by writes.
-const EDITABLE_GOAL_FIELDS = ['status', 'lastUpdate'];
+const VIEWS_TAB = 'Dashboard Views';
+const VIEWS_COLUMNS = ['Name', 'Config', 'Created By', 'Row ID'];
+
+// Editable fields on goal tabs via updateGoal — Days left stays a formula
+// column and is never listed here. startDate/targetDate are writable so the
+// Gantt's drag-to-reschedule can move them; Priority Order is only ever
+// written in bulk via reorderGoals_, never through this path.
+const EDITABLE_GOAL_FIELDS = ['status', 'lastUpdate', 'startDate', 'targetDate'];
 
 // ===== HTTP entry points ===================================================
 
@@ -136,7 +146,9 @@ function handleRead_(params) {
       var isMentorOwned = cfg.subtype === 'personal' && ownerIsMentor_(owner, mentors);
       if (view === 'student' && isMentorOwned) return; // keep mentor thinking off the student view
 
+      var startDate = toDate_(cell_(row, table.headerIndex, cfg.columns.startDate));
       var targetDate = toDate_(cell_(row, table.headerIndex, cfg.columns.targetDate));
+      var priorityRaw = cell_(row, table.headerIndex, cfg.columns.priorityOrder);
       items.push({
         type: 'goal',
         subtype: cfg.subtype,
@@ -144,9 +156,11 @@ function handleRead_(params) {
         title: goal,
         owner: owner,
         group: textCell_(row, table.headerIndex, cfg.columns.group),
+        startDate: startDate ? startDate.toISOString() : null,
         targetDate: targetDate ? targetDate.toISOString() : null,
         status: textCell_(row, table.headerIndex, cfg.columns.status),
         notes: textCell_(row, table.headerIndex, cfg.columns.lastUpdate),
+        priorityOrder: priorityRaw === '' ? null : Number(priorityRaw),
         daysLeft: daysLeft_(now, targetDate),
         workHoursLeft: workHoursLeft_(calendar, now, targetDate, hoursCache),
         isMentorOwned: isMentorOwned,
@@ -179,13 +193,68 @@ function handleRead_(params) {
     });
   }
 
-  var payload = { ok: true, generatedAt: now.toISOString(), items: items };
+  var payload = {
+    ok: true,
+    generatedAt: now.toISOString(),
+    items: items,
+    seasonLog: readSeasonLog_(ss),
+    views: readViews_(ss),
+  };
 
   if (view === 'mentor') {
     payload.mentorNotes = readMentorNotes_(ss);
   }
 
   return payload;
+}
+
+function readSeasonLog_(ss) {
+  var sheet = ss.getSheetByName(SEASON_LOG_TAB);
+  if (!sheet) return [];
+  var table = readSheetRows_(sheet, 'Archived on');
+  var rows = [];
+  table.rows.forEach(function(row) {
+    var title = textCell_(row, table.headerIndex, 'Goal');
+    if (!title) return;
+    var startDate = toDate_(cell_(row, table.headerIndex, 'Start date'));
+    var targetDate = toDate_(cell_(row, table.headerIndex, 'Target date'));
+    var finishedOn = toDate_(cell_(row, table.headerIndex, 'Finished on'));
+    var archivedOn = toDate_(cell_(row, table.headerIndex, 'Archived on'));
+    var varianceRaw = cell_(row, table.headerIndex, 'Early (-) / Late (+)');
+    rows.push({
+      type: textCell_(row, table.headerIndex, 'Type'),
+      title: title,
+      owner: textCell_(row, table.headerIndex, 'Owner'),
+      group: textCell_(row, table.headerIndex, 'Subteam / skill'),
+      startDate: startDate ? startDate.toISOString() : null,
+      targetDate: targetDate ? targetDate.toISOString() : null,
+      finishedOn: finishedOn ? finishedOn.toISOString() : null,
+      varianceDays: varianceRaw === '' ? null : Number(varianceRaw),
+      notes: textCell_(row, table.headerIndex, 'Notes / who I told'),
+      archivedOn: archivedOn ? archivedOn.toISOString() : null,
+    });
+  });
+  return rows;
+}
+
+function readViews_(ss) {
+  var sheet = ss.getSheetByName(VIEWS_TAB);
+  if (!sheet) return [];
+  var table = readSheetRows_(sheet, 'Name');
+  var views = [];
+  table.rows.forEach(function(row) {
+    var name = textCell_(row, table.headerIndex, 'Name');
+    if (!name) return;
+    var config = {};
+    try { config = JSON.parse(textCell_(row, table.headerIndex, 'Config')); } catch (err) { config = {}; }
+    views.push({
+      id: cell_(row, table.headerIndex, ROW_ID_COLUMN),
+      name: name,
+      config: config,
+      createdBy: textCell_(row, table.headerIndex, 'Created By'),
+    });
+  });
+  return views;
 }
 
 function readMentorNotes_(ss) {
@@ -235,6 +304,12 @@ function handleWrite_(params) {
       case 'addMentorNote':
         if (view !== 'mentor') return { ok: false, error: 'Mentor notes require the mentor view' };
         return addMentorNote_(ss, params.fields || {});
+      case 'reorderGoals':
+        return reorderGoals_(ss, params.fields || {});
+      case 'saveView':
+        return saveView_(ss, params.id, params.fields || {});
+      case 'deleteView':
+        return deleteView_(ss, params.id);
       default:
         return { ok: false, error: 'Unknown action: ' + params.action };
     }
@@ -243,26 +318,87 @@ function handleWrite_(params) {
   }
 }
 
-function updateGoal_(ss, rowId, fields) {
-  if (!rowId) return { ok: false, error: 'Missing id' };
+/** Locates a row by Row ID within one already-known sheet. */
+function findRowInSheetById_(sheet, anchorHeader, rowId) {
+  var table = readSheetRows_(sheet, anchorHeader);
+  var match = table.rows.filter(function(row) {
+    return cell_(row, table.headerIndex, ROW_ID_COLUMN) === rowId;
+  })[0];
+  return match ? { table: table, match: match } : null;
+}
+
+/** Locates a row by Row ID across both goal tabs. */
+function findGoalRow_(ss, rowId) {
   for (var i = 0; i < GOAL_TAB_CONFIGS.length; i++) {
     var cfg = GOAL_TAB_CONFIGS[i];
     var sheet = ss.getSheetByName(cfg.sheetName);
     if (!sheet) continue;
-    var table = readSheetRows_(sheet, cfg.columns.goal);
+    var found = findRowInSheetById_(sheet, cfg.columns.goal, rowId);
+    if (found) return { cfg: cfg, sheet: sheet, table: found.table, match: found.match };
+  }
+  return null;
+}
+
+function updateGoal_(ss, rowId, fields) {
+  if (!rowId) return { ok: false, error: 'Missing id' };
+  var found = findGoalRow_(ss, rowId);
+  if (!found) return { ok: false, error: 'Row not found: ' + rowId };
+
+  EDITABLE_GOAL_FIELDS.forEach(function(field) {
+    if (!(field in fields)) return;
+    var headerName = found.cfg.columns[field];
+    var value = fields[field];
+    if (field === 'startDate' || field === 'targetDate') value = toDate_(value) || value;
+    setCell_(found.sheet, found.match.rowNum, found.table.headerIndex, headerName, value, found.table.headerRowNum);
+  });
+  return { ok: true };
+}
+
+/** Batched priority reorder for one goal tab — one lock, sequential Priority Order writes. */
+function reorderGoals_(ss, fields) {
+  var sheetName = fields.sheetName;
+  var order = fields.order;
+  if (!sheetName || !Array.isArray(order)) return { ok: false, error: 'sheetName and order are required' };
+  var cfg = GOAL_TAB_CONFIGS.filter(function(c) { return c.sheetName === sheetName; })[0];
+  if (!cfg) return { ok: false, error: 'Unknown sheetName: ' + sheetName };
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return { ok: false, error: 'Missing "' + sheetName + '" tab' };
+  var table = readSheetRows_(sheet, cfg.columns.goal);
+  order.forEach(function(rowId, i) {
     var match = table.rows.filter(function(row) {
       return cell_(row, table.headerIndex, ROW_ID_COLUMN) === rowId;
     })[0];
-    if (!match) continue;
+    if (match) setCell_(sheet, match.rowNum, table.headerIndex, cfg.columns.priorityOrder, i + 1, table.headerRowNum);
+  });
+  return { ok: true };
+}
 
-    EDITABLE_GOAL_FIELDS.forEach(function(field) {
-      if (!(field in fields)) return;
-      var headerName = cfg.columns[field];
-      setCell_(sheet, match.rowNum, table.headerIndex, headerName, fields[field], table.headerRowNum);
-    });
-    return { ok: true };
+function saveView_(ss, id, fields) {
+  var sheet = ss.getSheetByName(VIEWS_TAB);
+  if (!sheet) return { ok: false, error: 'Missing "' + VIEWS_TAB + '" tab — run setupAllTeams() first' };
+  if (!fields.name || !fields.config) return { ok: false, error: 'name and config are required' };
+  var configStr = typeof fields.config === 'string' ? fields.config : JSON.stringify(fields.config);
+  if (id) {
+    var found = findRowInSheetById_(sheet, 'Name', id);
+    if (found) {
+      setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Name', fields.name, found.table.headerRowNum);
+      setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Config', configStr, found.table.headerRowNum);
+      setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Created By', fields.createdBy || '', found.table.headerRowNum);
+      return { ok: true, id: id };
+    }
   }
-  return { ok: false, error: 'Row not found: ' + rowId };
+  var newId = Utilities.getUuid();
+  sheet.appendRow([fields.name, configStr, fields.createdBy || '', newId]);
+  return { ok: true, id: newId };
+}
+
+function deleteView_(ss, id) {
+  var sheet = ss.getSheetByName(VIEWS_TAB);
+  if (!sheet || !id) return { ok: false, error: 'Missing view' };
+  var found = findRowInSheetById_(sheet, 'Name', id);
+  if (!found) return { ok: false, error: 'View not found: ' + id };
+  sheet.deleteRow(found.match.rowNum);
+  return { ok: true };
 }
 
 function addDeadline_(ss, fields) {
@@ -283,13 +419,10 @@ function addDeadline_(ss, fields) {
 function updateDeadline_(ss, rowId, fields) {
   var sheet = ss.getSheetByName(DEADLINES_TAB);
   if (!sheet || !rowId) return { ok: false, error: 'Row not found' };
-  var table = readSheetRows_(sheet, 'Event name');
-  var match = table.rows.filter(function(row) {
-    return cell_(row, table.headerIndex, ROW_ID_COLUMN) === rowId;
-  })[0];
-  if (!match) return { ok: false, error: 'Row not found: ' + rowId };
-  if ('notes' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Notes', fields.notes, table.headerRowNum);
-  if ('status' in fields) setCell_(sheet, match.rowNum, table.headerIndex, 'Type', fields.status, table.headerRowNum);
+  var found = findRowInSheetById_(sheet, 'Event name', rowId);
+  if (!found) return { ok: false, error: 'Row not found: ' + rowId };
+  if ('notes' in fields) setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Notes', fields.notes, found.table.headerRowNum);
+  if ('status' in fields) setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Type', fields.status, found.table.headerRowNum);
   return { ok: true };
 }
 
@@ -455,15 +588,21 @@ function setupTeamSheet_(sheetId) {
 
   ensureTab_(ss, DEADLINES_TAB, DEADLINES_COLUMNS);
   ensureTab_(ss, MENTOR_NOTES_TAB, MENTOR_NOTES_COLUMNS);
+  ensureTab_(ss, VIEWS_TAB, VIEWS_COLUMNS);
 
   GOAL_TAB_CONFIGS.forEach(function(cfg) {
     var sheet = ss.getSheetByName(cfg.sheetName);
-    if (sheet) backfillRowIds_(sheet, cfg.columns.goal);
+    if (sheet) {
+      backfillRowIds_(sheet, cfg.columns.goal);
+      backfillPriorityOrder_(sheet, cfg.columns.goal);
+    }
   });
   var deadlinesSheet = ss.getSheetByName(DEADLINES_TAB);
   if (deadlinesSheet) backfillRowIds_(deadlinesSheet, 'Event name');
   var notesSheet = ss.getSheetByName(MENTOR_NOTES_TAB);
   if (notesSheet) backfillRowIds_(notesSheet, 'Note');
+  var viewsSheet = ss.getSheetByName(VIEWS_TAB);
+  if (viewsSheet) backfillRowIds_(viewsSheet, 'Name');
 }
 
 function ensureTab_(ss, name, columns) {
@@ -512,5 +651,27 @@ function backfillRowIds_(sheet, anchorHeader) {
     if (!existing) {
       sheet.getRange(row.rowNum, idx + 1).setValue(Utilities.getUuid());
     }
+  });
+}
+
+/**
+ * Backfills the Priority Order column with each row's current position, for
+ * rows that don't have one yet. Unlike Row ID this never needed a repair
+ * pass — it's only ever added after the header-row-detection fix, so
+ * ensureColumnAt_ places it correctly from the start.
+ */
+function backfillPriorityOrder_(sheet, anchorHeader) {
+  var table = readSheetRows_(sheet, anchorHeader);
+  var idx = table.headerIndex[PRIORITY_ORDER_COLUMN];
+  if (idx === undefined) idx = ensureColumnAt_(sheet, table.headerRowNum, PRIORITY_ORDER_COLUMN, table.headerIndex);
+  var seq = 1;
+  table.rows.forEach(function(row) {
+    var firstCellHasContent = row.raw.some(function(v) { return v !== '' && v !== null; });
+    if (!firstCellHasContent) return;
+    var existing = row.raw[idx];
+    if (existing === '' || existing === null || existing === undefined) {
+      sheet.getRange(row.rowNum, idx + 1).setValue(seq);
+    }
+    seq++;
   });
 }

@@ -14,40 +14,123 @@
   </div>
 </header>
 
+<nav class="tab-bar">
+  <button class="tab-btn" data-tab="deadlines">Deadlines</button>
+  <button class="tab-btn" data-tab="timeline">Timeline</button>
+  <button class="tab-btn" data-tab="checkin">Check-In</button>
+  <button class="tab-btn" data-tab="season">Season</button>
+  <button class="tab-btn" data-tab="metrics">Metrics</button>
+</nav>
+
 <main id="main">
-  <section class="group">
-    <h2>Competitions &amp; key dates</h2>
-    <div class="card-list" id="deadlines-list"></div>
-    <details>
-      <summary>Add a competition or deadline</summary>
-      <form class="add-form" id="add-deadline-form">
+  <div class="tab-panel" data-tab="deadlines">
+    <section class="group">
+      <h2>Competitions &amp; key dates</h2>
+      <div class="card-list" id="deadlines-list"></div>
+      <details>
+        <summary>Add a competition or deadline</summary>
+        <form class="add-form" id="add-deadline-form">
+          <div class="row">
+            <input type="text" name="title" placeholder="Event name" required>
+            <input type="date" name="targetDate" required>
+          </div>
+          <div class="row">
+            <select name="eventType">
+              <option>Competition</option>
+              <option>Registration</option>
+              <option>Ship date</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <textarea name="notes" placeholder="Notes (optional)"></textarea>
+          <button type="submit">Add</button>
+        </form>
+      </details>
+    </section>
+
+    <section class="group">
+      <h2>Team goals</h2>
+      <div class="card-list" id="team-goals-list"></div>
+    </section>
+
+    <section class="group">
+      <h2>Personal goals</h2>
+      <div class="card-list" id="personal-goals-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="timeline">
+    <section class="group">
+      <h2>Timeline</h2>
+      <p class="card-meta">Drag a bar to reschedule it. Order follows Priority below, or Target date if no priority is set.</p>
+      <div class="gantt-scroll"><div id="gantt-track"></div></div>
+    </section>
+    <section class="group">
+      <h2>Team priority</h2>
+      <p class="card-meta">Drag the handle to reorder, or use the arrows.</p>
+      <div id="priority-list-team"></div>
+    </section>
+    <section class="group">
+      <h2>Personal priority</h2>
+      <div id="priority-list-personal"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="checkin">
+    <section class="group">
+      <h2>Weekly check-in</h2>
+      <div class="table-scroll" id="checkin-scoreboard"></div>
+    </section>
+    <section class="group">
+      <h2>Subteam scoreboard</h2>
+      <div class="table-scroll" id="checkin-subteams"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="season">
+    <section class="group">
+      <h2>Season trends</h2>
+      <div class="chart-block"><h3>Completions per month</h3><div id="season-chart-month"></div></div>
+      <div class="chart-block"><h3>On-time vs late</h3><div id="season-chart-ontime"></div></div>
+      <div class="chart-block"><h3>By subteam</h3><div id="season-chart-subteam"></div></div>
+    </section>
+    <section class="group">
+      <h2>Season log</h2>
+      <div class="filters">
+        <select id="season-filter-type"><option value="">All</option></select>
+        <select id="season-filter-group"><option value="">All</option></select>
+      </div>
+      <div id="season-table"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="metrics">
+    <section class="group">
+      <h2>Build a metric</h2>
+      <form class="add-form" id="metric-form">
         <div class="row">
-          <input type="text" name="title" placeholder="Event name" required>
-          <input type="date" name="targetDate" required>
+          <input type="text" id="metric-name" placeholder="Name this view" required>
         </div>
         <div class="row">
-          <select name="eventType">
-            <option>Competition</option>
-            <option>Registration</option>
-            <option>Ship date</option>
-            <option>Other</option>
+          <select id="metric-source">
+            <option value="goals">Goals</option>
+            <option value="seasonLog">Season Log</option>
           </select>
+          <select id="metric-groupby"></select>
+          <select id="metric-aggregation"></select>
         </div>
-        <textarea name="notes" placeholder="Notes (optional)"></textarea>
-        <button type="submit">Add</button>
+        <div class="row">
+          <select id="metric-filter-field"></select>
+          <input type="text" id="metric-filter-value" placeholder="Filter value (optional)">
+        </div>
+        <button type="submit">Save metric</button>
       </form>
-    </details>
-  </section>
-
-  <section class="group">
-    <h2>Team goals</h2>
-    <div class="card-list" id="team-goals-list"></div>
-  </section>
-
-  <section class="group">
-    <h2>Personal goals</h2>
-    <div class="card-list" id="personal-goals-list"></div>
-  </section>
+    </section>
+    <section class="group">
+      <h2>Saved metrics</h2>
+      <div id="metric-views"></div>
+    </section>
+  </div>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -55,5 +138,10 @@
 <script>window.DASHBOARD_VIEW = 'student';</script>
 <script src="config/teams.js"></script>
 <script src="app.js"></script>
+<script src="charts.js"></script>
+<script src="gantt.js"></script>
+<script src="checkin.js"></script>
+<script src="season.js"></script>
+<script src="metrics.js"></script>
 </body>
 </html>

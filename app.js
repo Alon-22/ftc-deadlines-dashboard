@@ -15,11 +15,13 @@
   };
 
   var el = {};
+  var dataListeners = [];
 
   document.addEventListener('DOMContentLoaded', init);
 
   function init() {
     cacheEls();
+    initTabs();
 
     if (!teams.length) {
       el.main.innerHTML = '<p class="empty-state">No teams configured yet — add one to config/teams.js.</p>';
@@ -67,6 +69,23 @@
     el.gateInput = document.getElementById('gate-passcode');
     el.gateSubmit = document.getElementById('gate-submit');
     el.toast = document.getElementById('toast');
+    el.tabButtons = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
+    el.tabPanels = Array.prototype.slice.call(document.querySelectorAll('.tab-panel'));
+  }
+
+  function initTabs() {
+    if (!el.tabButtons.length) return; // page has no tab bar, skip
+    el.tabButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () { showTab(btn.dataset.tab); });
+    });
+    var last = localStorage.getItem('lastTab:' + VIEW);
+    showTab(el.tabButtons.some(function (b) { return b.dataset.tab === last; }) ? last : el.tabButtons[0].dataset.tab);
+  }
+
+  function showTab(name) {
+    el.tabButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.tab === name); });
+    el.tabPanels.forEach(function (panel) { panel.classList.toggle('active', panel.dataset.tab === name); });
+    localStorage.setItem('lastTab:' + VIEW, name);
   }
 
   function showGate() {
@@ -110,6 +129,7 @@
         }
         state.data = json;
         render();
+        dataListeners.forEach(function (fn) { fn(json); });
       })
       .catch(function (err) {
         setLoading(false);
@@ -421,4 +441,29 @@
     d.textContent = s;
     return d.innerHTML;
   }
+
+  // ===== Shared surface for gantt.js / checkin.js / season.js / metrics.js ====
+  // Each of those files is a separate <script> (no bundler), so they reach
+  // the state/helpers here through this one namespace object rather than
+  // duplicating fetch/passcode/toast logic.
+  window.DB = {
+    view: VIEW,
+    state: state,
+    teamConfig: teamConfig,
+    withPasscode: withPasscode,
+    load: load,
+    post: post,
+    toast: toast,
+    escapeHtml: escapeHtml,
+    urgencyClass: urgencyClass,
+    // Registers fn(data) to run after every successful load() (including
+    // the first one) — the simplest way for a tab to stay in sync without
+    // its own fetch logic. Data volume here is a few dozen rows, so every
+    // registered tab just recomputes in full each time; no incremental
+    // update complexity needed.
+    onData: function (fn) {
+      dataListeners.push(fn);
+      if (state.data) fn(state.data);
+    },
+  };
 })();

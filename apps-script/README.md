@@ -27,12 +27,14 @@ One Apps Script project serves every team's dashboard. Do this once, then repeat
    list the names exactly as they'll be typed into the "Whose goal" column.
 3. Save, then run `setupAllTeams` once from the editor's function dropdown (▶ Run).
    The first run asks you to authorize the script — this is expected, since it
-   needs edit access to the sheet. It creates the "Competitions & Deadlines"
-   and "Mentor Notes" tabs and backfills the hidden Row ID column, locating the
-   real header row automatically even if there are title/instruction rows
-   above it. It's safe to run again any time (e.g. after editing `Code.gs`) —
-   it detects and repairs a Row ID column from a previous run rather than
-   duplicating it.
+   needs edit access to the sheet. It creates the "Competitions & Deadlines",
+   "Mentor Notes", and "Dashboard Views" tabs, and backfills the hidden
+   Row ID and Priority Order columns on both goal tabs, locating the real
+   header row automatically even if there are title/instruction rows above
+   it. It's safe to run again any time (e.g. after editing `Code.gs`) — it
+   detects and repairs a Row ID column from a previous run rather than
+   duplicating it, and never overwrites a Priority Order value that's
+   already set.
 
 ## 3. Set passcodes
 

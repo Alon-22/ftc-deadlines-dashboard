@@ -262,3 +262,267 @@ section.group h2 {
   .header-controls { justify-content: stretch; }
   .header-controls select { flex: 1; }
 }
+
+/* ===== Tabs ===== */
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* ===== Gantt ===== */
+
+.gantt-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.gantt-chart {
+  display: flex;
+  align-items: stretch;
+}
+
+.gantt-labels {
+  flex: 0 0 150px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.gantt-labels-spacer {
+  height: 32px;
+}
+
+.gantt-row-label {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-top: 1px solid var(--border);
+}
+
+.gantt-scroll-inner {
+  overflow-x: auto;
+  flex: 1;
+}
+
+.gantt-track {
+  position: relative;
+  padding-top: 32px;
+  min-width: 100%;
+}
+
+.gantt-gridlines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gantt-gridline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed var(--border);
+}
+
+.gantt-gridline span {
+  position: absolute;
+  top: -20px;
+  left: 4px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gantt-today-line {
+  position: absolute;
+  top: 24px;
+  bottom: 0;
+  border-left: 2px solid var(--accent);
+  z-index: 2;
+}
+
+.gantt-row-track {
+  position: relative;
+  height: 40px;
+  border-top: 1px solid var(--border);
+}
+
+.gantt-bar {
+  position: absolute;
+  top: 8px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--gray);
+  cursor: grab;
+  touch-action: none;
+}
+
+.gantt-bar.urgency-red { background: var(--red); }
+.gantt-bar.urgency-yellow { background: var(--yellow); }
+.gantt-bar.urgency-green { background: var(--green); }
+.gantt-bar.urgency-done { background: var(--gray); opacity: 0.6; }
+.gantt-bar.dragging { cursor: grabbing; opacity: 0.85; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+
+.gantt-bar-tip {
+  position: absolute;
+  bottom: 28px;
+  left: 0;
+  background: var(--text);
+  color: white;
+  font-size: 0.72rem;
+  padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gantt-bar-tip.show { opacity: 1; }
+
+/* ===== Priority lists ===== */
+
+.priority-list {
+  display: grid;
+  gap: 6px;
+}
+
+.priority-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.priority-row.dragging { opacity: 0.6; }
+
+.priority-handle {
+  cursor: grab;
+  touch-action: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  padding: 0 2px;
+}
+
+.priority-label {
+  flex: 1;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.priority-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.priority-buttons button {
+  padding: 4px 8px;
+}
+
+/* ===== Scoreboard / season tables ===== */
+
+.scoreboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.86rem;
+}
+
+.scoreboard-table th, .scoreboard-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.scoreboard-table th { color: var(--text-muted); font-weight: 600; }
+.scoreboard-table tr:last-child td { border-bottom: none; }
+
+.status-row-green td:first-child { color: var(--green); font-weight: 600; }
+.status-row-yellow td:first-child { color: var(--yellow); font-weight: 600; }
+.status-row-red td:first-child { color: var(--red); font-weight: 600; }
+.status-row-overdue td:first-child { color: var(--red); font-weight: 600; }
+
+.season-table { overflow-x: auto; display: block; }
+
+.table-scroll { overflow-x: auto; }
+
+.filters select { min-width: 120px; }
+
+/* ===== Charts ===== */
+
+.chart-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.chart-block h3 {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.bar-chart-value {
+  font-size: 10px;
+  fill: var(--text);
+}
+
+.bar-chart-label {
+  font-size: 10px;
+  fill: var(--text-muted);
+}
+
+/* ===== Metrics ===== */
+
+.metric-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.metric-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
