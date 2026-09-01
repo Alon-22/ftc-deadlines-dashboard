@@ -264,9 +264,42 @@
     editBtn.textContent = 'Edit';
     editBtn.addEventListener('click', function () { toggleEdit(card, item); });
     actions.appendChild(editBtn);
+
+    if (item.targetDate) {
+      var calBtn = document.createElement('a');
+      calBtn.className = 'secondary';
+      calBtn.textContent = '📅 Add to my calendar';
+      calBtn.href = calendarAddUrl(item);
+      calBtn.target = '_blank';
+      calBtn.rel = 'noopener';
+      actions.appendChild(calBtn);
+    }
+
     card.appendChild(actions);
 
     return card;
+  }
+
+  // Google Calendar's "quick add" template URL — opens in a new tab, the
+  // student clicks Save on THEIR OWN calendar. No OAuth, no backend
+  // involvement: this never touches the shared team calendar or requires
+  // any account access from us.
+  function calendarAddUrl(item) {
+    var start = new Date(item.targetDate);
+    var end = new Date(start.getTime() + 86400000); // Calendar's all-day end date is exclusive
+    var params = [
+      'action=TEMPLATE',
+      'text=' + encodeURIComponent(item.title),
+      'dates=' + icsDate(start) + '/' + icsDate(end),
+    ];
+    if (item.notes) params.push('details=' + encodeURIComponent(item.notes));
+    return 'https://calendar.google.com/calendar/render?' + params.join('&');
+  }
+
+  function icsDate(d) {
+    var mm = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    return '' + d.getFullYear() + mm + dd;
   }
 
   function toggleEdit(card, item) {

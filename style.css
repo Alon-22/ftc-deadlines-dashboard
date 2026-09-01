@@ -65,10 +65,16 @@ button {
   cursor: pointer;
 }
 
-button.secondary {
+button.secondary, a.secondary {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+a.secondary {
+  display: inline-block;
+  text-decoration: none;
+  font-size: 0.85rem;
 }
 
 button:disabled { opacity: 0.5; cursor: default; }

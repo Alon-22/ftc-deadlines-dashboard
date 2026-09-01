@@ -24,7 +24,7 @@
 const TEAMS = {
   MysteryMeat: {
     sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
-    calendarId: null, // fill in once the work-sessions calendar is shared
+    calendarId: 'c_75dae7e7b71d6c86414525f344f9018a0b245cc08756965c47c23fbc47e812f7@group.calendar.google.com',
     mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
   },
   // example: {
