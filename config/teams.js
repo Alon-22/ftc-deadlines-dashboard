@@ -7,8 +7,8 @@
 
 window.TEAMS = [
   {
-    key: 'mysterymeat20406',
+    key: 'MysteryMeat',
     label: 'Mystery Meat (20406)',
-    webAppUrl: 'https://script.google.com/macros/s/AKfycbyxtnnrlnMSYOyb8Q4QaGtWvRbnAtj2cehCUTmmtVwe1rllrsm4ZBc56enLSEwGaP86cw/exec',
+    webAppUrl: 'https://script.google.com/macros/s/AKfycbxXfLyvkWw02q770kdCzF_Pfjju33NWMm7qUqb98Pb9xiEedGFAXEh9nK53VaLiawR8_A/exec',
   },
 ];

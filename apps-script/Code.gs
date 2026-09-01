@@ -22,6 +22,11 @@
 // ===== Team registry =====================================================
 
 const TEAMS = {
+  MysteryMeat: {
+    sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
+    calendarId: null, // fill in once the work-sessions calendar is shared
+    mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
+  },
   // example: {
   //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
   //   calendarId: null, // fill in once the work-sessions calendar is shared
