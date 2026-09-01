@@ -18,13 +18,14 @@
     dueThisWeek: document.getElementById('checkin-due-this-week'),
     dueNextWeek: document.getElementById('checkin-due-next-week'),
     overdue: document.getElementById('checkin-overdue'),
-    completed: document.getElementById('checkin-completed'),
-    recentArchived: document.getElementById('checkin-recent-archived'),
+    red: document.getElementById('checkin-red'),
+    doneLastWeek: document.getElementById('checkin-done-last-week'),
   };
   var hasAny = Object.keys(el).some(function (k) { return el[k]; });
   if (!hasAny) return; // no Check-In tab on this page
 
   var STATUSES = ['Green', 'Yellow', 'Red', 'Not started', 'Done'];
+  var MS_PER_DAY = 86400000;
 
   DB.onData(function (data) {
     var items = data.items || [];
@@ -32,15 +33,20 @@
     if (el.scoreboard) renderScoreboard(goals);
     if (el.subteams) renderSubteams(goals);
 
-    if (el.dueThisWeek || el.dueNextWeek || el.overdue || el.completed) {
+    if (el.dueThisWeek || el.dueNextWeek || el.overdue) {
       var buckets = computeBuckets(items);
       if (el.dueThisWeek) renderBucket(el.dueThisWeek, buckets.dueThisWeek, 'Nothing due this week.');
       if (el.dueNextWeek) renderBucket(el.dueNextWeek, buckets.dueNextWeek, 'Nothing due next week.');
       if (el.overdue) renderBucket(el.overdue, buckets.overdue, 'Nothing overdue.');
-      if (el.completed) renderBucket(el.completed, buckets.completed, 'Nothing completed yet.');
     }
 
-    if (el.recentArchived) renderRecentArchived(el.recentArchived, data.seasonLog || []);
+    if (el.red) {
+      var red = goals.filter(function (g) { return normalizedStatus(g) === 'Red'; });
+      red.sort(function (a, b) { return (a.daysLeft == null ? 0 : a.daysLeft) - (b.daysLeft == null ? 0 : b.daysLeft); });
+      renderBucket(el.red, red, 'Nothing flagged red right now.');
+    }
+
+    if (el.doneLastWeek) renderDoneLastWeek(el.doneLastWeek, goals, data.seasonLog || []);
   });
 
   function normalizedStatus(item) {
@@ -77,10 +83,10 @@
 
   /**
    * Buckets every item (goals AND deadlines — both carry a targetDate) by
-   * this calendar week / next calendar week / overdue, plus goals with
-   * status Done into "completed." Overdue takes priority over the week
-   * buckets so an early-in-the-week item that's already past due doesn't
-   * show up twice.
+   * this calendar week / next calendar week / overdue. Done goals are
+   * excluded entirely (they belong in "Done this last week" instead).
+   * Overdue takes priority over the week buckets so an early-in-the-week
+   * item that's already past due doesn't show up twice.
    */
   function computeBuckets(items) {
     var now = new Date();
@@ -89,12 +95,9 @@
     var nextStart = addDays(thisStart, 7);
     var nextEnd = endOfDay(addDays(thisStart, 13));
 
-    var dueThisWeek = [], dueNextWeek = [], overdue = [], completed = [];
+    var dueThisWeek = [], dueNextWeek = [], overdue = [];
     items.forEach(function (item) {
-      if (item.type === 'goal' && normalizedStatus(item) === 'Done') {
-        completed.push(item);
-        return;
-      }
+      if (item.type === 'goal' && normalizedStatus(item) === 'Done') return;
       if (!item.targetDate) return;
       if (isOverdue(item)) { overdue.push(item); return; }
       var t = new Date(item.targetDate);
@@ -102,11 +105,11 @@
       else if (t >= nextStart && t <= nextEnd) dueNextWeek.push(item);
     });
 
-    [dueThisWeek, dueNextWeek, overdue, completed].forEach(function (list) {
+    [dueThisWeek, dueNextWeek, overdue].forEach(function (list) {
       list.sort(function (a, b) { return (a.daysLeft == null ? 0 : a.daysLeft) - (b.daysLeft == null ? 0 : b.daysLeft); });
     });
 
-    return { dueThisWeek: dueThisWeek, dueNextWeek: dueNextWeek, overdue: overdue, completed: completed };
+    return { dueThisWeek: dueThisWeek, dueNextWeek: dueNextWeek, overdue: overdue };
   }
 
   function renderBucket(container, items, emptyText) {
@@ -118,37 +121,54 @@
     items.forEach(function (item) { container.appendChild(DB.buildCard(item)); });
   }
 
-  // ===== Recently archived (Season Log) — read-only, no edit path exists ======
-  // for rows the sheet has already swept out of the live goal tabs.
-
-  function renderRecentArchived(container, seasonLog) {
+  /**
+   * "Done this last week" = goals still marked Done in the live tabs
+   * (editable — no completion date exists for these, so they show up here
+   * until someone archives them) PLUS Season Log rows finished in the
+   * last rolling 7 days (read-only — no edit path exists once a row has
+   * been swept out of the live goal tabs).
+   */
+  function renderDoneLastWeek(container, goals, seasonLog) {
+    container.innerHTML = '';
     var now = new Date();
-    var start = startOfWeek(now);
-    var end = endOfDay(addDays(start, 6));
-    var recent = seasonLog.filter(function (r) {
+    var weekAgo = new Date(now.getTime() - 7 * MS_PER_DAY);
+
+    var currentlyDone = goals.filter(function (g) { return normalizedStatus(g) === 'Done'; });
+    var archivedRecent = seasonLog.filter(function (r) {
       if (!r.finishedOn) return false;
       var d = new Date(r.finishedOn);
-      return d >= start && d <= end;
+      return d >= weekAgo && d <= now;
     });
+    archivedRecent.sort(function (a, b) { return (b.finishedOn || '').localeCompare(a.finishedOn || ''); });
 
-    container.innerHTML = '';
-    if (!recent.length) {
-      container.innerHTML = '<p class="empty-state">Nothing archived this week.</p>';
+    if (!currentlyDone.length && !archivedRecent.length) {
+      container.appendChild(emptyStateEl('Nothing marked done in the last week.'));
       return;
     }
-    recent.forEach(function (r) {
-      var entry = document.createElement('div');
-      entry.className = 'note-entry';
-      var meta = document.createElement('div');
-      meta.className = 'note-meta';
-      meta.textContent = (r.owner || '') + (r.group ? ' · ' + r.group : '') + ' · finished ' +
-        (r.finishedOn ? new Date(r.finishedOn).toLocaleDateString() : '');
-      var title = document.createElement('div');
-      title.textContent = r.title;
-      entry.appendChild(title);
-      entry.appendChild(meta);
-      container.appendChild(entry);
-    });
+
+    archivedRecent.forEach(function (r) { container.appendChild(buildArchivedEntry(r)); });
+    currentlyDone.forEach(function (item) { container.appendChild(DB.buildCard(item)); });
+  }
+
+  function buildArchivedEntry(r) {
+    var entry = document.createElement('div');
+    entry.className = 'note-entry';
+    var meta = document.createElement('div');
+    meta.className = 'note-meta';
+    meta.textContent = (r.owner || '') + (r.group ? ' · ' + r.group : '') + ' · finished ' +
+      (r.finishedOn ? new Date(r.finishedOn).toLocaleDateString() : '') + ' (archived)';
+    var title = document.createElement('div');
+    title.textContent = r.title;
+    entry.appendChild(title);
+    entry.appendChild(meta);
+    return entry;
+  }
+
+  function emptyStateEl(text) {
+    var p = document.createElement('p');
+    p.className = 'empty-state';
+    p.textContent = text;
+    return p;
   }
 
   // ===== Scoreboard / subteam breakdown (unchanged) ===========================

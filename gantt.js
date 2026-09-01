@@ -10,12 +10,14 @@
   if (!DB) return;
 
   var el = {
-    track: document.getElementById('gantt-track'),
+    trackTeam: document.getElementById('gantt-track-team'),
+    trackPersonal: document.getElementById('gantt-track-personal'),
     teamPriority: document.getElementById('priority-list-team'),
     personalPriority: document.getElementById('priority-list-personal'),
     ownerFilter: document.getElementById('timeline-owner-filter'),
   };
-  if (!el.track && !el.teamPriority && !el.personalPriority) return; // no Timeline tab on this page
+  var hasAnyEl = Object.keys(el).some(function (k) { return el[k]; });
+  if (!hasAnyEl) return; // no Timeline tab on this page
 
   var MS_PER_DAY = 86400000;
   var currentGoals = []; // last full (unfiltered) goals list, kept in sync so drag handlers can re-render without a refetch
@@ -61,18 +63,19 @@
   function renderAll() {
     var goals = filterByOwner(currentGoals);
     var filtered = !!selectedOwner();
-    if (el.track) renderGantt(goals);
+    if (el.trackTeam) renderGantt(el.trackTeam, goals.filter(function (g) { return g.subtype === 'team'; }));
+    if (el.trackPersonal) renderGantt(el.trackPersonal, goals.filter(function (g) { return g.subtype === 'personal'; }));
     if (el.teamPriority) renderPriorityList(el.teamPriority, goals.filter(function (g) { return g.subtype === 'team'; }), 'Team Goals', filtered);
     if (el.personalPriority) renderPriorityList(el.personalPriority, goals.filter(function (g) { return g.subtype === 'personal'; }), 'Personal Goals', filtered);
   }
 
   // ===== Gantt bars ============================================================
 
-  function renderGantt(goals) {
-    el.track.innerHTML = '';
+  function renderGantt(container, goals) {
+    container.innerHTML = '';
     var withDates = goals.filter(function (g) { return g.targetDate; });
     if (!withDates.length) {
-      el.track.innerHTML = '<p class="empty-state">No dated goals yet.</p>';
+      container.innerHTML = '<p class="empty-state">No dated goals yet.</p>';
       return;
     }
     var sorted = sortForDisplay(withDates);
@@ -80,7 +83,7 @@
     // Available width is whatever the scrollable pane gets, not the label
     // column — the label column is a separate, non-scrolling flex sibling,
     // so bars and gridlines never sit underneath the row labels.
-    var scrollWidth = Math.max((el.track.clientWidth || 600) - 150, 400);
+    var scrollWidth = Math.max((container.clientWidth || 600) - 150, 400);
     var totalDays = Math.max(1, (scale.maxDate - scale.minDate) / MS_PER_DAY);
     var pixelsPerDay = Math.max(4, scrollWidth / totalDays);
     var fullWidth = pixelsPerDay * totalDays;
@@ -113,7 +116,7 @@
     scrollInner.appendChild(track);
     chart.appendChild(scrollInner);
 
-    el.track.appendChild(chart);
+    container.appendChild(chart);
   }
 
   function sortForDisplay(goals) {

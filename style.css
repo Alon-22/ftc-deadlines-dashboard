@@ -275,6 +275,72 @@ section.group h2 {
   .header-controls select { flex: 1; }
 }
 
+/* ===== Deadlines layout ===== */
+
+.deadlines-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+.deadlines-aside {
+  order: -1;
+}
+
+.deadlines-aside h2 {
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
+@media (min-width: 700px) {
+  .deadlines-layout {
+    grid-template-columns: 1fr 260px;
+    align-items: start;
+  }
+  .deadlines-aside {
+    order: 0;
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .deadlines-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+
+.card-list.compact {
+  gap: 6px;
+}
+
+.card-list.compact .card {
+  padding: 8px 10px;
+  border-left-width: 3px;
+}
+
+.card-list.compact .card-title {
+  font-size: 0.86rem;
+}
+
+.card-list.compact .card-meta {
+  font-size: 0.75rem;
+}
+
+.card-list.compact .card-notes,
+.card-list.compact .card-actions {
+  display: none;
+}
+
+.card-list.compact .countdown .days {
+  font-size: 0.92rem;
+}
+
+.card-list.compact .countdown .hours {
+  font-size: 0.68rem;
+}
+
 /* ===== Tabs ===== */
 
 .tab-bar {
