@@ -47,6 +47,16 @@ deployed Apps Script Web App URL — see `apps-script/README.md`.
 3. Push this repo to GitHub, enable Pages (Settings → Pages → deploy from
    branch, root).
 
+**Cache-busting**: `index.html`/`mentor.html` load every local script/style
+with a `?v=<short-sha>` query string, since GitHub Pages caches static
+files for 10 minutes and browsers often hold on to them well past that —
+without it, people can sit on a stale cached version after a deploy until
+they think to hard-refresh. **Bump that `?v=` value to the new commit's
+short SHA on every push that touches `app.js`/`gantt.js`/`charts.js`/
+`checkin.js`/`season.js`/`metrics.js`/`style.css`/`config/teams.js`** —
+a quick `sed -i '' "s/v=OLDSHA/v=NEWSHA/g" index.html mentor.html` after
+committing (then amend, or just commit the bump too) keeps it in sync.
+
 ## Notes
 
 - Days-left stays a Sheet formula, never written to. The Sheet's own Gantt,
