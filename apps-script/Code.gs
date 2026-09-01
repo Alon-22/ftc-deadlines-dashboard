@@ -22,10 +22,10 @@
 // ===== Team registry =====================================================
 
 const TEAMS = {
-  // example: {
-  //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
-  //   calendarId: null, // fill in once the work-sessions calendar is shared
-  // },
+   MysteryMeat: {
+     sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
+     calendarId: null, // fill in once the work-sessions calendar is shared
+   },
 };
 
 // ===== Sheet schema ========================================================
