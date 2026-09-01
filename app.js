@@ -85,6 +85,7 @@
   function showTab(name) {
     el.tabButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.tab === name); });
     el.tabPanels.forEach(function (panel) { panel.classList.toggle('active', panel.dataset.tab === name); });
+    el.main.classList.toggle('wide', name === 'timeline'); // Gantt wants more width than the card tabs do
     localStorage.setItem('lastTab:' + VIEW, name);
   }
 

@@ -13,21 +13,57 @@
     track: document.getElementById('gantt-track'),
     teamPriority: document.getElementById('priority-list-team'),
     personalPriority: document.getElementById('priority-list-personal'),
+    ownerFilter: document.getElementById('timeline-owner-filter'),
   };
   if (!el.track && !el.teamPriority && !el.personalPriority) return; // no Timeline tab on this page
 
   var MS_PER_DAY = 86400000;
-  var currentGoals = []; // last full goals list, kept in sync so drag handlers can re-render without a refetch
+  var currentGoals = []; // last full (unfiltered) goals list, kept in sync so drag handlers can re-render without a refetch
 
   DB.onData(function (data) {
     currentGoals = (data.items || []).filter(function (i) { return i.type === 'goal'; });
+    populateOwnerFilter();
     renderAll();
   });
 
+  if (el.ownerFilter) el.ownerFilter.addEventListener('change', renderAll);
+
+  function ownerNames(ownerStr) {
+    return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function populateOwnerFilter() {
+    if (!el.ownerFilter) return;
+    var seen = {};
+    currentGoals.forEach(function (g) { ownerNames(g.owner).forEach(function (n) { seen[n] = true; }); });
+    var names = Object.keys(seen).sort();
+    var current = el.ownerFilter.value;
+    el.ownerFilter.innerHTML = '<option value="">All people</option>';
+    names.forEach(function (n) {
+      var opt = document.createElement('option');
+      opt.value = n;
+      opt.textContent = n;
+      el.ownerFilter.appendChild(opt);
+    });
+    if (names.indexOf(current) !== -1) el.ownerFilter.value = current;
+  }
+
+  function selectedOwner() {
+    return el.ownerFilter ? el.ownerFilter.value : '';
+  }
+
+  function filterByOwner(goals) {
+    var sel = selectedOwner();
+    if (!sel) return goals;
+    return goals.filter(function (g) { return ownerNames(g.owner).indexOf(sel) !== -1; });
+  }
+
   function renderAll() {
-    if (el.track) renderGantt(currentGoals);
-    if (el.teamPriority) renderPriorityList(el.teamPriority, currentGoals.filter(function (g) { return g.subtype === 'team'; }), 'Team Goals');
-    if (el.personalPriority) renderPriorityList(el.personalPriority, currentGoals.filter(function (g) { return g.subtype === 'personal'; }), 'Personal Goals');
+    var goals = filterByOwner(currentGoals);
+    var filtered = !!selectedOwner();
+    if (el.track) renderGantt(goals);
+    if (el.teamPriority) renderPriorityList(el.teamPriority, goals.filter(function (g) { return g.subtype === 'team'; }), 'Team Goals', filtered);
+    if (el.personalPriority) renderPriorityList(el.personalPriority, goals.filter(function (g) { return g.subtype === 'personal'; }), 'Personal Goals', filtered);
   }
 
   // ===== Gantt bars ============================================================
@@ -187,14 +223,14 @@
       var prevTarget = goal.targetDate;
       goal.startDate = addDays(new Date(goal.startDate), deltaDays).toISOString();
       goal.targetDate = addDays(new Date(goal.targetDate), deltaDays).toISOString();
-      renderGantt(currentGoals); // optimistic: reflect the new position immediately
+      renderAll(); // optimistic: reflect the new position immediately
 
       DB.withPasscode(function () {
         DB.post('updateGoal', goal.id, { startDate: goal.startDate, targetDate: goal.targetDate }, function (ok) {
           if (!ok) {
             goal.startDate = prevStart;
             goal.targetDate = prevTarget;
-            renderGantt(currentGoals);
+            renderAll();
           }
         });
       });
@@ -209,10 +245,16 @@
 
   // ===== Priority reorder lists ================================================
 
-  function renderPriorityList(container, goals, sheetName) {
+  function renderPriorityList(container, goals, sheetName, filtered) {
     container.innerHTML = '';
+    if (filtered) {
+      var note = document.createElement('p');
+      note.className = 'card-meta';
+      note.textContent = 'Clear the "All people" filter to reorder — priority numbers are shared across everyone on this tab.';
+      container.appendChild(note);
+    }
     if (!goals.length) {
-      container.innerHTML = '<p class="empty-state">Nothing to prioritize yet.</p>';
+      container.appendChild(emptyState('Nothing to prioritize yet.'));
       return;
     }
     var sorted = sortForDisplay(goals);
@@ -240,32 +282,39 @@
       upBtn.type = 'button';
       upBtn.className = 'secondary';
       upBtn.textContent = '↑';
-      upBtn.disabled = i === 0;
-      upBtn.addEventListener('click', function () { moveAndSave(sorted, i, i - 1, sheetName, container, goals); });
+      upBtn.disabled = filtered || i === 0;
+      upBtn.addEventListener('click', function () { moveAndSave(sorted, i, i - 1, sheetName); });
       var downBtn = document.createElement('button');
       downBtn.type = 'button';
       downBtn.className = 'secondary';
       downBtn.textContent = '↓';
-      downBtn.disabled = i === sorted.length - 1;
-      downBtn.addEventListener('click', function () { moveAndSave(sorted, i, i + 1, sheetName, container, goals); });
+      downBtn.disabled = filtered || i === sorted.length - 1;
+      downBtn.addEventListener('click', function () { moveAndSave(sorted, i, i + 1, sheetName); });
       buttons.appendChild(upBtn);
       buttons.appendChild(downBtn);
       row.appendChild(buttons);
 
-      attachRowDrag(row, handle, list, sorted, sheetName, container, goals);
+      if (!filtered) attachRowDrag(row, handle, list, sorted, sheetName);
+      else handle.style.visibility = 'hidden';
       list.appendChild(row);
     });
 
     container.appendChild(list);
   }
 
-  function moveAndSave(sorted, fromIndex, toIndex, sheetName, container, goals) {
+  function emptyState(text) {
+    var p = document.createElement('p');
+    p.className = 'empty-state';
+    p.textContent = text;
+    return p;
+  }
+
+  function moveAndSave(sorted, fromIndex, toIndex, sheetName) {
     if (toIndex < 0 || toIndex >= sorted.length) return;
     var item = sorted.splice(fromIndex, 1)[0];
     sorted.splice(toIndex, 0, item);
     saveOrder(sorted, sheetName);
-    renderPriorityList(container, goals, sheetName);
-    if (el.track) renderGantt(currentGoals);
+    renderAll();
   }
 
   function saveOrder(orderedGoals, sheetName) {
@@ -276,7 +325,7 @@
     });
   }
 
-  function attachRowDrag(row, handle, list, sorted, sheetName, container, goals) {
+  function attachRowDrag(row, handle, list, sorted, sheetName) {
     var dragging = false;
 
     handle.addEventListener('pointerdown', function (e) {
@@ -307,7 +356,7 @@
         return sorted.filter(function (g) { return g.id === r.dataset.id; })[0];
       }).filter(Boolean);
       saveOrder(newOrder, sheetName);
-      if (el.track) renderGantt(currentGoals);
+      renderAll();
     }
 
     handle.addEventListener('pointerup', endDrag);

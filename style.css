@@ -83,6 +83,12 @@ main {
   padding: 8px 16px 40px;
   max-width: 900px;
   margin: 0 auto;
+  transition: max-width 0.15s ease;
+}
+
+/* The Gantt chart wants room to breathe — widen the page while Timeline is active. */
+main.wide {
+  max-width: 1400px;
 }
 
 section.group {
@@ -319,7 +325,7 @@ section.group h2 {
 }
 
 .gantt-labels-spacer {
-  height: 32px;
+  height: 36px;
 }
 
 .gantt-row-label {
@@ -341,7 +347,7 @@ section.group h2 {
 
 .gantt-track {
   position: relative;
-  padding-top: 32px;
+  padding-top: 36px;
   min-width: 100%;
 }
 
@@ -358,18 +364,23 @@ section.group h2 {
   border-left: 1px dashed var(--border);
 }
 
+/* Sits inside the track's own top padding (the reserved header band) —
+   a negative offset here would push it above the track entirely, where
+   .gantt-scroll-inner's overflow-x:auto silently clips it (auto on one
+   axis forces the other to auto too, per the CSS overflow spec). */
 .gantt-gridline span {
   position: absolute;
-  top: -20px;
+  top: 6px;
   left: 4px;
-  font-size: 0.7rem;
-  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
   white-space: nowrap;
 }
 
 .gantt-today-line {
   position: absolute;
-  top: 24px;
+  top: 36px;
   bottom: 0;
   border-left: 2px solid var(--accent);
   z-index: 2;
