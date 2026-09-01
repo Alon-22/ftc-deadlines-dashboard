@@ -16,6 +16,7 @@
 
 <nav class="tab-bar">
   <button class="tab-btn" data-tab="deadlines">Deadlines</button>
+  <button class="tab-btn" data-tab="todo">To-Do</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
   <button class="tab-btn" data-tab="season">Season</button>
@@ -78,6 +79,15 @@
         </details>
       </aside>
     </div>
+  </div>
+
+  <div class="tab-panel" data-tab="todo">
+    <section class="group todo-header">
+      <h2>This week's to-do lists</h2>
+      <p class="card-meta">One list per person, built from goals due this week. Add sub-tasks, check them off, print for the wall — everything here saves to the Subtasks sheet automatically, so it becomes the season-end record.</p>
+      <button type="button" class="secondary" id="todo-print-btn">🖨️ Print</button>
+    </section>
+    <div id="todo-list"></div>
   </div>
 
   <div class="tab-panel" data-tab="timeline">
@@ -195,5 +205,6 @@
 <script src="checkin.js?v=bf6af5f"></script>
 <script src="season.js?v=bf6af5f"></script>
 <script src="metrics.js?v=bf6af5f"></script>
+<script src="todo.js?v=bf6af5f"></script>
 </body>
 </html>

@@ -82,6 +82,14 @@ const SEASON_LOG_TAB = 'Season Log';
 const VIEWS_TAB = 'Dashboard Views';
 const VIEWS_COLUMNS = ['Name', 'Config', 'Created By', 'Row ID'];
 
+// Sub-tasks under a weekly goal, generated from the To-Do tab. This tab IS
+// the season-long judges record — nothing else archives it, so rows are
+// never deleted by normal use, only ever appended/toggled. "Week Of" is the
+// Monday of the calendar week the sub-task was created in, so a season-end
+// pull can group by week without recomputing it from Created At.
+const SUBTASKS_TAB = 'Subtasks';
+const SUBTASKS_COLUMNS = ['Goal ID', 'Owner', 'Week Of', 'Text', 'Done', 'Created At', 'Completed At', 'Row ID'];
+
 // Editable fields on goal tabs via updateGoal — Days left stays a formula
 // column and is never listed here. startDate/targetDate are writable so the
 // Gantt's drag-to-reschedule can move them; Priority Order is only ever
@@ -199,6 +207,7 @@ function handleRead_(params) {
     items: items,
     seasonLog: readSeasonLog_(ss),
     views: readViews_(ss),
+    subtasks: readSubtasks_(ss),
   };
 
   if (view === 'mentor') {
@@ -257,6 +266,30 @@ function readViews_(ss) {
   return views;
 }
 
+function readSubtasks_(ss) {
+  var sheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (!sheet) return [];
+  var table = readSheetRows_(sheet, 'Text');
+  var subtasks = [];
+  table.rows.forEach(function(row) {
+    var text = textCell_(row, table.headerIndex, 'Text');
+    if (!text) return;
+    var createdAt = toDate_(cell_(row, table.headerIndex, 'Created At'));
+    var completedAt = toDate_(cell_(row, table.headerIndex, 'Completed At'));
+    subtasks.push({
+      id: cell_(row, table.headerIndex, ROW_ID_COLUMN),
+      goalId: textCell_(row, table.headerIndex, 'Goal ID'),
+      owner: textCell_(row, table.headerIndex, 'Owner'),
+      weekOf: textCell_(row, table.headerIndex, 'Week Of'),
+      text: text,
+      done: String(cell_(row, table.headerIndex, 'Done')).toUpperCase() === 'TRUE',
+      createdAt: createdAt ? createdAt.toISOString() : null,
+      completedAt: completedAt ? completedAt.toISOString() : null,
+    });
+  });
+  return subtasks;
+}
+
 function readMentorNotes_(ss) {
   var sheet = ss.getSheetByName(MENTOR_NOTES_TAB);
   if (!sheet) return [];
@@ -306,6 +339,12 @@ function handleWrite_(params) {
         return addMentorNote_(ss, params.fields || {});
       case 'reorderGoals':
         return reorderGoals_(ss, params.fields || {});
+      case 'addSubtask':
+        return addSubtask_(ss, params.fields || {});
+      case 'toggleSubtask':
+        return toggleSubtask_(ss, params.id, params.fields || {});
+      case 'deleteSubtask':
+        return deleteSubtask_(ss, params.id);
       case 'saveView':
         return saveView_(ss, params.id, params.fields || {});
       case 'deleteView':
@@ -397,6 +436,44 @@ function deleteView_(ss, id) {
   if (!sheet || !id) return { ok: false, error: 'Missing view' };
   var found = findRowInSheetById_(sheet, 'Name', id);
   if (!found) return { ok: false, error: 'View not found: ' + id };
+  sheet.deleteRow(found.match.rowNum);
+  return { ok: true };
+}
+
+function addSubtask_(ss, fields) {
+  var sheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (!sheet) return { ok: false, error: 'Missing "' + SUBTASKS_TAB + '" tab — run setupAllTeams() first' };
+  if (!fields.goalId || !fields.text) return { ok: false, error: 'goalId and text are required' };
+  var id = Utilities.getUuid();
+  sheet.appendRow([
+    fields.goalId,
+    fields.owner || '',
+    fields.weekOf || '',
+    fields.text,
+    false,
+    new Date(),
+    '',
+    id,
+  ]);
+  return { ok: true, id: id };
+}
+
+function toggleSubtask_(ss, id, fields) {
+  var sheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (!sheet || !id) return { ok: false, error: 'Row not found' };
+  var found = findRowInSheetById_(sheet, 'Text', id);
+  if (!found) return { ok: false, error: 'Row not found: ' + id };
+  var done = !!fields.done;
+  setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Done', done, found.table.headerRowNum);
+  setCell_(sheet, found.match.rowNum, found.table.headerIndex, 'Completed At', done ? new Date() : '', found.table.headerRowNum);
+  return { ok: true };
+}
+
+function deleteSubtask_(ss, id) {
+  var sheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (!sheet || !id) return { ok: false, error: 'Missing subtask' };
+  var found = findRowInSheetById_(sheet, 'Text', id);
+  if (!found) return { ok: false, error: 'Row not found: ' + id };
   sheet.deleteRow(found.match.rowNum);
   return { ok: true };
 }
@@ -589,6 +666,7 @@ function setupTeamSheet_(sheetId) {
   ensureTab_(ss, DEADLINES_TAB, DEADLINES_COLUMNS);
   ensureTab_(ss, MENTOR_NOTES_TAB, MENTOR_NOTES_COLUMNS);
   ensureTab_(ss, VIEWS_TAB, VIEWS_COLUMNS);
+  ensureTab_(ss, SUBTASKS_TAB, SUBTASKS_COLUMNS);
 
   GOAL_TAB_CONFIGS.forEach(function(cfg) {
     var sheet = ss.getSheetByName(cfg.sheetName);
@@ -603,6 +681,8 @@ function setupTeamSheet_(sheetId) {
   if (notesSheet) backfillRowIds_(notesSheet, 'Note');
   var viewsSheet = ss.getSheetByName(VIEWS_TAB);
   if (viewsSheet) backfillRowIds_(viewsSheet, 'Name');
+  var subtasksSheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (subtasksSheet) backfillRowIds_(subtasksSheet, 'Text');
 }
 
 function ensureTab_(ss, name, columns) {
