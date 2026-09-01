@@ -489,6 +489,7 @@
     toast: toast,
     escapeHtml: escapeHtml,
     urgencyClass: urgencyClass,
+    buildCard: buildCard, // the editable card (Edit + Add-to-calendar) used everywhere else — reuse it, don't rebuild it
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every

@@ -78,12 +78,34 @@
 
   <div class="tab-panel" data-tab="checkin">
     <section class="group">
+      <h2>Due this week</h2>
+      <div class="card-list" id="checkin-due-this-week"></div>
+    </section>
+    <section class="group">
+      <h2>Due next week</h2>
+      <div class="card-list" id="checkin-due-next-week"></div>
+    </section>
+    <section class="group">
+      <h2>Overdue</h2>
+      <div class="card-list" id="checkin-overdue"></div>
+    </section>
+    <section class="group">
+      <h2>Completed, not yet archived</h2>
+      <p class="card-meta">Marked Done in the Sheet but still sitting in the live goal tabs.</p>
+      <div class="card-list" id="checkin-completed"></div>
+    </section>
+    <section class="group">
       <h2>Weekly check-in</h2>
       <div class="table-scroll" id="checkin-scoreboard"></div>
     </section>
     <section class="group">
       <h2>Subteam scoreboard</h2>
       <div class="table-scroll" id="checkin-subteams"></div>
+    </section>
+    <section class="group">
+      <h2>Archived this week</h2>
+      <p class="card-meta">From the Season Log — already swept off the goal tabs, shown read-only.</p>
+      <div id="checkin-recent-archived"></div>
     </section>
   </div>
 
