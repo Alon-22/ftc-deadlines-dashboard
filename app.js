@@ -1,6 +1,18 @@
 // Shared logic for index.html (student) and mentor.html (mentor).
 // Each page sets `window.DASHBOARD_VIEW` to 'student' or 'mentor' before
-// loading this file, and includes config/teams.js first.
+// loading this file, and includes config/teams.js + config/firebase.js
+// + the Firebase compat SDK scripts first.
+//
+// Data layer: Firestore, read via onSnapshot (live sync) and written via
+// the Firebase SDK directly from the browser — Apps Script is only still
+// involved for one call, minting a signed custom token (see mintToken_ in
+// apps-script/Code.gs) after checking the team's passcode, exactly the way
+// it used to gate every read/write. Firestore Security Rules enforce the
+// rest (student vs. mentor, which collections each can touch).
+//
+// Every other file (gantt.js/checkin.js/season.js/metrics.js/todo.js) only
+// ever touches window.DB — state.data, post(), onData() — so none of them
+// needed to change for this migration; only what's inside this file did.
 
 (function () {
   'use strict';
@@ -16,6 +28,12 @@
 
   var el = {};
   var dataListeners = [];
+  var db = null;
+  var auth = null;
+  var unsubscribers = []; // active onSnapshot listeners for the current team, torn down on team switch
+  var teamMentors = [];   // current team's mentor names, for computing isMentorOwned on write
+  var latestGoals = [];
+  var latestDeadlines = [];
 
   document.addEventListener('DOMContentLoaded', init);
 
@@ -27,6 +45,10 @@
       el.main.innerHTML = '<p class="empty-state">No teams configured yet — add one to config/teams.js.</p>';
       return;
     }
+
+    var app = firebase.initializeApp(window.FIREBASE_CONFIG);
+    auth = app.auth();
+    db = app.firestore();
 
     teams.forEach(function (t) {
       var opt = document.createElement('option');
@@ -41,7 +63,7 @@
     el.teamSelect.addEventListener('change', function () {
       state.team = el.teamSelect.value;
       localStorage.setItem('lastTeam:' + VIEW, state.team);
-      load();
+      switchTeam();
     });
 
     if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
@@ -55,7 +77,7 @@
     if (VIEW === 'mentor' && !state.passcode) {
       showGate();
     } else {
-      load();
+      switchTeam();
     }
   }
 
@@ -103,15 +125,19 @@
   }
 
   function showGate() {
-    if (!el.gate) return load(); // page has no gate markup, skip
+    if (!el.gate) return switchTeam(); // page has no gate markup, skip
     el.gate.style.display = 'block';
     el.main.style.display = 'none';
     el.gateSubmit.addEventListener('click', function () {
-      state.passcode = el.gateInput.value.trim();
-      sessionStorage.setItem('passcode:' + VIEW, state.passcode);
-      el.gate.style.display = 'none';
-      el.main.style.display = '';
-      load();
+      var passcode = el.gateInput.value.trim();
+      setLoading(true);
+      ensureSignedIn(passcode, function (err) {
+        setLoading(false);
+        if (err) { toast('Error: ' + err); return; }
+        el.gate.style.display = 'none';
+        el.main.style.display = '';
+        subscribeToTeam();
+      });
     });
   }
 
@@ -119,36 +145,187 @@
     return teams.filter(function (t) { return t.key === state.team; })[0];
   }
 
-  function load() {
-    var team = teamConfig();
-    if (!team) return;
-    var url = team.webAppUrl + '?team=' + encodeURIComponent(state.team) +
-        '&view=' + VIEW + '&action=deadlines' +
-        (state.passcode ? '&passcode=' + encodeURIComponent(state.passcode) : '');
+  // ===== Auth (mint a custom token via Apps Script, then sign in) ============
 
-    setLoading(true);
+  function mintToken_(passcode, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    var url = team.webAppUrl + '?action=mintToken&team=' + encodeURIComponent(state.team) +
+        '&view=' + VIEW + '&passcode=' + encodeURIComponent(passcode || '');
     fetch(url)
       .then(function (r) { return r.json(); })
       .then(function (json) {
-        setLoading(false);
-        if (!json.ok) {
-          if (VIEW === 'mentor' && /passcode/i.test(json.error || '')) {
+        if (!json.ok) return cb(null, json.error);
+        cb(json.token, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
+  function ensureSignedIn(passcode, cb) {
+    mintToken_(passcode, function (token, err) {
+      if (!token) return cb(err || 'Could not sign in');
+      auth.signInWithCustomToken(token)
+        .then(function () {
+          state.passcode = passcode || '';
+          sessionStorage.setItem('passcode:' + VIEW, state.passcode);
+          cb(null);
+        })
+        .catch(function (e) { cb(e.message); });
+    });
+  }
+
+  // Student view has no gate UI — try the cached (often empty) passcode
+  // silently first, matching how student reads were always open before.
+  // Only fall back to a prompt if that mint is actually rejected (a
+  // student passcode has been configured for this team).
+  function switchTeam() {
+    unsubscribers.forEach(function (unsub) { unsub(); });
+    unsubscribers = [];
+    latestGoals = [];
+    latestDeadlines = [];
+    state.data = null;
+
+    setLoading(true);
+    (auth.currentUser ? auth.signOut() : Promise.resolve()).then(function () {
+      ensureSignedIn(state.passcode, function (err) {
+        if (err) {
+          setLoading(false);
+          if (VIEW === 'student') {
+            var p = window.prompt('Enter the student passcode to continue:');
+            if (p === null) return;
+            ensureSignedIn(p.trim(), function (err2) {
+              if (err2) return toast('Error: ' + err2);
+              subscribeToTeam();
+            });
+          } else {
             sessionStorage.removeItem('passcode:' + VIEW);
             state.passcode = '';
             showGate();
-            return;
           }
-          toast('Error: ' + json.error);
           return;
         }
-        state.data = json;
-        render();
-        dataListeners.forEach(function (fn) { fn(json); });
-      })
-      .catch(function (err) {
-        setLoading(false);
-        toast('Could not reach the dashboard backend: ' + err);
+        subscribeToTeam();
       });
+    });
+  }
+
+  function subscribeToTeam() {
+    var team = teamConfig();
+    if (!team) return;
+    var teamRef = db.collection('teams').doc(state.team);
+
+    teamRef.get().then(function (doc) {
+      teamMentors = (doc.exists && doc.data().mentors) || [];
+    });
+
+    // Firestore can only allow a collection-wide list query when the rule's
+    // condition is provable from the query itself — an unconstrained query
+    // can't be checked against each doc's isMentorOwned field the way a
+    // single-doc read can, so the student view adds the matching where()
+    // clause itself rather than relying on the rule to filter results.
+    var goalsQuery = teamRef.collection('goals');
+    if (VIEW === 'student') goalsQuery = goalsQuery.where('isMentorOwned', '==', false);
+    unsubscribers.push(goalsQuery.onSnapshot(function (snap) {
+      latestGoals = snap.docs.map(function (d) { return goalDocToItem_(d); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('deadlines').onSnapshot(function (snap) {
+      latestDeadlines = snap.docs.map(function (d) { return deadlineDocToItem_(d); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('subtasks').onSnapshot(function (snap) {
+      ensureData_().subtasks = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('views').onSnapshot(function (snap) {
+      ensureData_().views = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('seasonLog').onSnapshot(function (snap) {
+      ensureData_().seasonLog = snap.docs.map(function (d) { return d.data(); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    if (VIEW === 'mentor') {
+      unsubscribers.push(teamRef.collection('mentorNotes').onSnapshot(function (snap) {
+        var notes = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+        notes.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+        ensureData_().mentorNotes = notes;
+        recomputeAndRender();
+      }, onSnapshotError_));
+    }
+
+    setLoading(false);
+  }
+
+  function onSnapshotError_(err) {
+    setLoading(false);
+    toast('Could not reach the dashboard: ' + err.message);
+  }
+
+  function ensureData_() {
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [] };
+    return state.data;
+  }
+
+  function recomputeAndRender() {
+    var data = ensureData_();
+    data.items = latestGoals.concat(latestDeadlines);
+    data.generatedAt = new Date().toISOString();
+    render();
+    dataListeners.forEach(function (fn) { fn(data); });
+  }
+
+  // ===== Firestore doc <-> the items[] shape every tab already expects =====
+
+  function goalDocToItem_(doc) {
+    var g = doc.data();
+    var targetDate = g.targetDate ? new Date(g.targetDate) : null;
+    return {
+      type: 'goal',
+      subtype: g.subtype,
+      id: doc.id,
+      title: g.title,
+      owner: g.owner || '',
+      group: g.group || '',
+      startDate: g.startDate || null,
+      targetDate: g.targetDate || null,
+      status: g.status || '',
+      notes: g.notes || '',
+      priorityOrder: g.priorityOrder == null ? null : g.priorityOrder,
+      daysLeft: daysLeft_(targetDate),
+      workHoursLeft: g.workHoursLeft == null ? null : g.workHoursLeft,
+      isMentorOwned: !!g.isMentorOwned,
+    };
+  }
+
+  function deadlineDocToItem_(doc) {
+    var d = doc.data();
+    var targetDate = d.targetDate ? new Date(d.targetDate) : null;
+    return {
+      type: 'deadline',
+      subtype: d.eventType || 'Other',
+      id: doc.id,
+      title: d.title,
+      owner: '',
+      group: '',
+      targetDate: d.targetDate || null,
+      status: '',
+      notes: d.notes || '',
+      daysLeft: daysLeft_(targetDate),
+      workHoursLeft: d.workHoursLeft == null ? null : d.workHoursLeft,
+      isMentorOwned: false,
+    };
+  }
+
+  function daysLeft_(targetDate) {
+    if (!targetDate) return null;
+    var ms = targetDate.getTime() - Date.now();
+    return Math.ceil(ms / 86400000);
   }
 
   function setLoading(isLoading) {
@@ -225,7 +402,7 @@
 
   // Team goals can have more than one owner, so this is a picker of
   // checkboxes (chips) rather than a single-select dropdown. Re-rendering
-  // on every load() preserves whatever's currently checked.
+  // on every update preserves whatever's currently checked.
   function fillOwnerPicker(container, names) {
     var checked = {};
     Array.prototype.slice.call(container.querySelectorAll('input[type=checkbox]:checked')).forEach(function (cb) { checked[cb.value] = true; });
@@ -292,7 +469,7 @@
 
   // Team goals: owner is every checked chip plus whatever's typed in the
   // "add another name" box (comma-separated), joined the same way the
-  // sheet already stores multiple names (e.g. "Milena, Kaia").
+  // sheet already stored multiple names (e.g. "Milena, Kaia").
   function resolveTeamOwnerGroup() {
     var checkedNames = el.addTeamGoalOwnerPicker
       ? Array.prototype.slice.call(el.addTeamGoalOwnerPicker.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) { return cb.value; })
@@ -460,10 +637,8 @@
       if (statusSelect) fields.status = statusSelect.value;
       var action = item.type === 'deadline' ? 'updateDeadline' : 'updateGoal';
       if (item.type === 'deadline') fields = { notes: textarea.value };
-      withPasscode(function () {
-        post(action, item.id, fields, function (ok) {
-          if (ok) { wrap.remove(); row.remove(); load(); }
-        });
+      post(action, item.id, fields, function (ok) {
+        if (ok) { wrap.remove(); row.remove(); }
       });
     });
 
@@ -492,43 +667,146 @@
   }
 
   // ===== Writes ===============================================================
+  // Every write goes straight to Firestore from here — the passcode gate
+  // already happened once (ensureSignedIn, at load or team switch); the
+  // signed-in session's custom claims are what Security Rules check on
+  // every write from here on, not a per-call passcode.
 
   function withPasscode(fn) {
-    if (state.passcode) return fn();
-    var p = window.prompt('Enter the ' + VIEW + ' passcode to save changes:');
-    if (p === null) return;
-    state.passcode = p.trim();
-    sessionStorage.setItem('passcode:' + VIEW, state.passcode);
-    fn();
+    fn(); // kept for gantt.js/todo.js/metrics.js call sites — already signed in by the time any write happens
+  }
+
+  function teamRef_() {
+    return db.collection('teams').doc(state.team);
+  }
+
+  function ownerNames_(ownerStr) {
+    return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
   function post(action, id, fields, cb) {
-    var team = teamConfig();
-    if (!team) return;
-    fetch(team.webAppUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // keeps this a "simple request" for Apps Script's CORS handling
-      body: JSON.stringify({ team: state.team, view: VIEW, passcode: state.passcode, action: action, id: id, fields: fields }),
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (json) {
-        if (!json.ok) {
-          if (/passcode/i.test(json.error || '')) {
-            sessionStorage.removeItem('passcode:' + VIEW);
-            state.passcode = '';
-          }
-          toast('Error: ' + json.error);
-          cb(false);
-          return;
-        }
-        toast('Saved');
-        cb(true);
-      })
-      .catch(function (err) {
-        toast('Could not save: ' + err);
-        cb(false);
-      });
+    var handler = WRITE_HANDLERS[action];
+    if (!handler) { toast('Unknown action: ' + action); return cb(false); }
+    handler(id, fields || {})
+      .then(function () { toast('Saved'); cb(true); })
+      .catch(function (err) { toast('Could not save: ' + err.message); cb(false); });
   }
+
+  var WRITE_HANDLERS = {
+    updateGoal: function (id, fields) {
+      var patch = {};
+      if ('status' in fields) patch.status = fields.status;
+      if ('lastUpdate' in fields) patch.notes = fields.lastUpdate;
+      if ('startDate' in fields) patch.startDate = new Date(fields.startDate).toISOString();
+      if ('targetDate' in fields) patch.targetDate = new Date(fields.targetDate).toISOString();
+      return teamRef_().collection('goals').doc(id).update(patch);
+    },
+
+    updateDeadline: function (id, fields) {
+      var patch = {};
+      if ('notes' in fields) patch.notes = fields.notes;
+      return teamRef_().collection('deadlines').doc(id).update(patch);
+    },
+
+    addDeadline: function (id, fields) {
+      return teamRef_().collection('deadlines').add({
+        title: fields.title,
+        targetDate: new Date(fields.targetDate).toISOString(),
+        eventType: fields.subtype || 'Other',
+        notes: fields.notes || '',
+      });
+    },
+
+    addPersonalGoal: function (id, fields) {
+      var owners = ownerNames_(fields.owner);
+      return teamRef_().collection('goals').add({
+        title: fields.title,
+        owner: fields.owner,
+        owners: owners,
+        group: fields.group || '',
+        subtype: 'personal',
+        status: 'Not started',
+        notes: '',
+        startDate: new Date().toISOString(),
+        targetDate: fields.targetDate ? new Date(fields.targetDate).toISOString() : null,
+        priorityOrder: null,
+        isMentorOwned: owners.some(function (n) { return teamMentors.indexOf(n) !== -1; }),
+      });
+    },
+
+    addTeamGoal: function (id, fields) {
+      var owners = ownerNames_(fields.owner);
+      return teamRef_().collection('goals').add({
+        title: fields.title,
+        owner: fields.owner,
+        owners: owners,
+        group: fields.group || '',
+        subtype: 'team',
+        status: 'Not started',
+        notes: '',
+        startDate: new Date().toISOString(),
+        targetDate: fields.targetDate ? new Date(fields.targetDate).toISOString() : null,
+        priorityOrder: null,
+        isMentorOwned: false,
+      });
+    },
+
+    addMentorNote: function (id, fields) {
+      return teamRef_().collection('mentorNotes').add({
+        mentor: fields.mentor,
+        note: fields.note,
+        date: new Date().toISOString(),
+      });
+    },
+
+    reorderGoals: function (id, fields) {
+      var subtype = fields.sheetName === 'Team Goals' ? 'team' : 'personal';
+      var batch = db.batch();
+      var goalsColl = teamRef_().collection('goals');
+      fields.order.forEach(function (goalId, i) {
+        batch.update(goalsColl.doc(goalId), { priorityOrder: i + 1 });
+      });
+      return batch.commit().then(function () {
+        // subtype isn't used server-side (rules don't need it), it's only
+        // here for readers of this code — reorder is scoped to whichever
+        // ids were passed in, already filtered to one subtype by gantt.js.
+        void subtype;
+      });
+    },
+
+    addSubtask: function (id, fields) {
+      return teamRef_().collection('subtasks').add({
+        goalId: fields.goalId,
+        owner: fields.owner || '',
+        weekOf: fields.weekOf || '',
+        text: fields.text,
+        done: false,
+        createdAt: new Date().toISOString(),
+        completedAt: null,
+      });
+    },
+
+    toggleSubtask: function (id, fields) {
+      return teamRef_().collection('subtasks').doc(id).update({
+        done: !!fields.done,
+        completedAt: fields.done ? new Date().toISOString() : null,
+      });
+    },
+
+    deleteSubtask: function (id) {
+      return teamRef_().collection('subtasks').doc(id).delete();
+    },
+
+    saveView: function (id, fields) {
+      var payload = { name: fields.name, config: fields.config, createdBy: fields.createdBy || '' };
+      if (id) return teamRef_().collection('views').doc(id).set(payload);
+      return teamRef_().collection('views').add(payload);
+    },
+
+    deleteView: function (id) {
+      return teamRef_().collection('views').doc(id).delete();
+    },
+  };
 
   function onAddDeadline(e) {
     e.preventDefault();
@@ -540,10 +818,8 @@
       notes: form.notes.value.trim(),
     };
     if (!fields.title || !fields.targetDate) return toast('Event name and date are required');
-    withPasscode(function () {
-      post('addDeadline', null, fields, function (ok) {
-        if (ok) { form.reset(); load(); }
-      });
+    post('addDeadline', null, fields, function (ok) {
+      if (ok) form.reset();
     });
   }
 
@@ -558,15 +834,12 @@
       targetDate: form.targetDate.value,
     };
     if (!fields.title || !fields.owner) return toast('Goal and your name are required');
-    withPasscode(function () {
-      post('addPersonalGoal', null, fields, function (ok) {
-        if (ok) {
-          form.reset();
-          if (el.addGoalOwnerOther) el.addGoalOwnerOther.style.display = 'none';
-          if (el.addGoalGroupOther) el.addGoalGroupOther.style.display = 'none';
-          load();
-        }
-      });
+    post('addPersonalGoal', null, fields, function (ok) {
+      if (ok) {
+        form.reset();
+        if (el.addGoalOwnerOther) el.addGoalOwnerOther.style.display = 'none';
+        if (el.addGoalGroupOther) el.addGoalGroupOther.style.display = 'none';
+      }
     });
   }
 
@@ -581,20 +854,17 @@
       targetDate: form.targetDate.value,
     };
     if (!fields.title || !fields.owner) return toast('Goal and at least one name are required');
-    withPasscode(function () {
-      post('addTeamGoal', null, fields, function (ok) {
-        if (ok) {
-          form.reset();
-          if (el.addTeamGoalOwnerPicker) {
-            Array.prototype.slice.call(el.addTeamGoalOwnerPicker.querySelectorAll('input[type=checkbox]')).forEach(function (cb) {
-              cb.checked = false;
-              cb.closest('label').classList.remove('checked');
-            });
-          }
-          if (el.addTeamGoalGroupOther) el.addTeamGoalGroupOther.style.display = 'none';
-          load();
+    post('addTeamGoal', null, fields, function (ok) {
+      if (ok) {
+        form.reset();
+        if (el.addTeamGoalOwnerPicker) {
+          Array.prototype.slice.call(el.addTeamGoalOwnerPicker.querySelectorAll('input[type=checkbox]')).forEach(function (cb) {
+            cb.checked = false;
+            cb.closest('label').classList.remove('checked');
+          });
         }
-      });
+        if (el.addTeamGoalGroupOther) el.addTeamGoalGroupOther.style.display = 'none';
+      }
     });
   }
 
@@ -603,10 +873,8 @@
     var form = e.target;
     var fields = { mentor: form.mentor.value.trim(), note: form.note.value.trim() };
     if (!fields.mentor || !fields.note) return toast('Your name and a note are required');
-    withPasscode(function () {
-      post('addMentorNote', null, fields, function (ok) {
-        if (ok) { form.note.value = ''; load(); }
-      });
+    post('addMentorNote', null, fields, function (ok) {
+      if (ok) form.note.value = '';
     });
   }
 
@@ -630,13 +898,15 @@
   // ===== Shared surface for gantt.js / checkin.js / season.js / metrics.js ====
   // Each of those files is a separate <script> (no bundler), so they reach
   // the state/helpers here through this one namespace object rather than
-  // duplicating fetch/passcode/toast logic.
+  // duplicating auth/Firestore/toast logic. Their calls (state.data,
+  // post(), onData()) are unchanged from the old Sheets-backed version —
+  // only what's behind this surface changed.
   window.DB = {
     view: VIEW,
     state: state,
     teamConfig: teamConfig,
     withPasscode: withPasscode,
-    load: load,
+    load: function () {}, // no-op: onSnapshot keeps state.data current on its own now
     post: post,
     toast: toast,
     escapeHtml: escapeHtml,
