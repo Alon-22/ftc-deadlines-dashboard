@@ -245,6 +245,47 @@ section.group.group-alert h2 {
 
 .add-form .row > * { flex: 1; min-width: 140px; }
 
+/* Multi-person picker for team goals — chips of checkboxes rather than a
+   dropdown, since a team goal can have more than one owner. */
+.owner-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 100%;
+}
+
+.owner-picker label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: var(--surface);
+  user-select: none;
+}
+
+.owner-picker label.checked,
+.owner-picker label:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.owner-picker input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.owner-picker-empty {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .gate {
   max-width: 360px;
   margin: 60px auto;

@@ -35,6 +35,32 @@
     <div class="deadlines-layout">
       <div class="deadlines-main">
         <section class="group">
+          <details>
+            <summary><strong>+ Add a new team goal</strong></summary>
+            <form class="add-form" id="add-team-goal-form">
+              <div class="row">
+                <div class="owner-picker" id="add-team-goal-owner-picker"></div>
+              </div>
+              <div class="row">
+                <input type="text" id="add-team-goal-owner-other" placeholder="Add another name (comma-separated for multiple)">
+              </div>
+              <div class="row">
+                <select id="add-team-goal-group">
+                  <option value="">Select subteam…</option>
+                  <option value="__other__">Other (type below)…</option>
+                </select>
+                <input type="text" id="add-team-goal-group-other" placeholder="Type subteam" style="display:none;">
+              </div>
+              <div class="row">
+                <input type="text" name="title" placeholder="Goal (one sentence)" required>
+                <input type="date" name="targetDate">
+              </div>
+              <button type="submit">Add team goal</button>
+            </form>
+          </details>
+        </section>
+
+        <section class="group">
           <h2>Team goals</h2>
           <div class="card-list" id="team-goals-list"></div>
         </section>

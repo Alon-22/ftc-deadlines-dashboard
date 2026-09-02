@@ -334,6 +334,8 @@ function handleWrite_(params) {
         return updateDeadline_(ss, params.id, params.fields || {});
       case 'addPersonalGoal':
         return addPersonalGoal_(ss, params.fields || {});
+      case 'addTeamGoal':
+        return addTeamGoal_(ss, params.fields || {});
       case 'addMentorNote':
         if (view !== 'mentor') return { ok: false, error: 'Mentor notes require the mentor view' };
         return addMentorNote_(ss, params.fields || {});
@@ -504,10 +506,23 @@ function updateDeadline_(ss, rowId, fields) {
 }
 
 function addPersonalGoal_(ss, fields) {
-  var sheet = ss.getSheetByName('Personal Goals');
-  if (!sheet) return { ok: false, error: 'Missing "Personal Goals" tab' };
+  return addGoalRow_(ss, 'Personal Goals', fields);
+}
+
+function addTeamGoal_(ss, fields) {
+  return addGoalRow_(ss, 'Team Goals', fields);
+}
+
+/**
+ * Shared by addPersonalGoal_/addTeamGoal_ — same row shape either way.
+ * fields.owner accepts a comma-separated list (e.g. "Milena, Kaia") so a
+ * team goal can carry more than one name, same as the sheet always could.
+ */
+function addGoalRow_(ss, sheetName, fields) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return { ok: false, error: 'Missing "' + sheetName + '" tab' };
   if (!fields.title || !fields.owner) return { ok: false, error: 'title and owner are required' };
-  var cfg = GOAL_TAB_CONFIGS.filter(function(c) { return c.sheetName === 'Personal Goals'; })[0];
+  var cfg = GOAL_TAB_CONFIGS.filter(function(c) { return c.sheetName === sheetName; })[0];
   var table = readSheetRows_(sheet, cfg.columns.goal);
   var id = Utilities.getUuid();
   var row = [];

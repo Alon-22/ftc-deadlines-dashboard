@@ -46,9 +46,11 @@
 
     if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
     if (el.addGoalForm) el.addGoalForm.addEventListener('submit', onAddGoal);
+    if (el.addTeamGoalForm) el.addTeamGoalForm.addEventListener('submit', onAddTeamGoal);
     if (el.addNoteForm) el.addNoteForm.addEventListener('submit', onAddNote);
     if (el.addGoalOwner) el.addGoalOwner.addEventListener('change', function () { toggleOther(el.addGoalOwner, el.addGoalOwnerOther); });
     if (el.addGoalGroup) el.addGoalGroup.addEventListener('change', function () { toggleOther(el.addGoalGroup, el.addGoalGroupOther); });
+    if (el.addTeamGoalGroup) el.addTeamGoalGroup.addEventListener('change', function () { toggleOther(el.addTeamGoalGroup, el.addTeamGoalGroupOther); });
 
     if (VIEW === 'mentor' && !state.passcode) {
       showGate();
@@ -70,6 +72,11 @@
     el.addGoalOwnerOther = document.getElementById('add-goal-owner-other');
     el.addGoalGroup = document.getElementById('add-goal-group');
     el.addGoalGroupOther = document.getElementById('add-goal-group-other');
+    el.addTeamGoalForm = document.getElementById('add-team-goal-form');
+    el.addTeamGoalOwnerPicker = document.getElementById('add-team-goal-owner-picker');
+    el.addTeamGoalOwnerOther = document.getElementById('add-team-goal-owner-other');
+    el.addTeamGoalGroup = document.getElementById('add-team-goal-group');
+    el.addTeamGoalGroupOther = document.getElementById('add-team-goal-group-other');
     el.addNoteForm = document.getElementById('add-note-form');
     el.gate = document.getElementById('gate');
     el.gateInput = document.getElementById('gate-passcode');
@@ -197,22 +204,53 @@
     populateAddGoalOptions(items);
   }
 
-  // Dropdowns for the "add a new goal" form are built from names/subteams
+  // Dropdowns for the "add a new goal" forms are built from names/subteams
   // already seen in the data, so picking one is the fast path and typing a
   // brand new one (via "Other") stays possible without a backend change.
   function populateAddGoalOptions(items) {
-    if (el.addGoalOwner) {
-      var owners = {};
-      items.forEach(function (i) {
-        (i.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (n) { owners[n] = true; });
-      });
-      fillSelect(el.addGoalOwner, Object.keys(owners).sort(), 'Select your name…');
+    var owners = {};
+    var groups = {};
+    items.forEach(function (i) {
+      (i.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (n) { owners[n] = true; });
+      if (i.group) groups[i.group] = true;
+    });
+    var ownerNames = Object.keys(owners).sort();
+    var groupNames = Object.keys(groups).sort();
+
+    if (el.addGoalOwner) fillSelect(el.addGoalOwner, ownerNames, 'Select your name…');
+    if (el.addGoalGroup) fillSelect(el.addGoalGroup, groupNames, 'Select subteam / skill area…');
+    if (el.addTeamGoalOwnerPicker) fillOwnerPicker(el.addTeamGoalOwnerPicker, ownerNames);
+    if (el.addTeamGoalGroup) fillSelect(el.addTeamGoalGroup, groupNames, 'Select subteam…');
+  }
+
+  // Team goals can have more than one owner, so this is a picker of
+  // checkboxes (chips) rather than a single-select dropdown. Re-rendering
+  // on every load() preserves whatever's currently checked.
+  function fillOwnerPicker(container, names) {
+    var checked = {};
+    Array.prototype.slice.call(container.querySelectorAll('input[type=checkbox]:checked')).forEach(function (cb) { checked[cb.value] = true; });
+    container.innerHTML = '';
+    if (!names.length) {
+      var empty = document.createElement('span');
+      empty.className = 'owner-picker-empty';
+      empty.textContent = 'No names yet — add one below.';
+      container.appendChild(empty);
+      return;
     }
-    if (el.addGoalGroup) {
-      var groups = {};
-      items.forEach(function (i) { if (i.group) groups[i.group] = true; });
-      fillSelect(el.addGoalGroup, Object.keys(groups).sort(), 'Select subteam / skill area…');
-    }
+    names.forEach(function (name) {
+      var label = document.createElement('label');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = name;
+      if (checked[name]) {
+        cb.checked = true;
+        label.classList.add('checked');
+      }
+      cb.addEventListener('change', function () { label.classList.toggle('checked', cb.checked); });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(name));
+      container.appendChild(label);
+    });
   }
 
   function fillSelect(select, values, placeholder) {
@@ -248,6 +286,23 @@
       : '';
     var group = el.addGoalGroup
       ? (el.addGoalGroup.value === '__other__' ? el.addGoalGroupOther.value.trim() : el.addGoalGroup.value)
+      : '';
+    return { owner: owner, group: group };
+  }
+
+  // Team goals: owner is every checked chip plus whatever's typed in the
+  // "add another name" box (comma-separated), joined the same way the
+  // sheet already stores multiple names (e.g. "Milena, Kaia").
+  function resolveTeamOwnerGroup() {
+    var checkedNames = el.addTeamGoalOwnerPicker
+      ? Array.prototype.slice.call(el.addTeamGoalOwnerPicker.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) { return cb.value; })
+      : [];
+    var otherNames = el.addTeamGoalOwnerOther
+      ? el.addTeamGoalOwnerOther.value.split(',').map(function (s) { return s.trim(); }).filter(Boolean)
+      : [];
+    var owner = checkedNames.concat(otherNames).join(', ');
+    var group = el.addTeamGoalGroup
+      ? (el.addTeamGoalGroup.value === '__other__' ? el.addTeamGoalGroupOther.value.trim() : el.addTeamGoalGroup.value)
       : '';
     return { owner: owner, group: group };
   }
@@ -509,6 +564,34 @@
           form.reset();
           if (el.addGoalOwnerOther) el.addGoalOwnerOther.style.display = 'none';
           if (el.addGoalGroupOther) el.addGoalGroupOther.style.display = 'none';
+          load();
+        }
+      });
+    });
+  }
+
+  function onAddTeamGoal(e) {
+    e.preventDefault();
+    var form = e.target;
+    var ownerGroup = resolveTeamOwnerGroup();
+    var fields = {
+      title: form.title.value.trim(),
+      owner: ownerGroup.owner,
+      group: ownerGroup.group,
+      targetDate: form.targetDate.value,
+    };
+    if (!fields.title || !fields.owner) return toast('Goal and at least one name are required');
+    withPasscode(function () {
+      post('addTeamGoal', null, fields, function (ok) {
+        if (ok) {
+          form.reset();
+          if (el.addTeamGoalOwnerPicker) {
+            Array.prototype.slice.call(el.addTeamGoalOwnerPicker.querySelectorAll('input[type=checkbox]')).forEach(function (cb) {
+              cb.checked = false;
+              cb.closest('label').classList.remove('checked');
+            });
+          }
+          if (el.addTeamGoalGroupOther) el.addTeamGoalGroupOther.style.display = 'none';
           load();
         }
       });
