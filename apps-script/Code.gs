@@ -26,6 +26,7 @@ const TEAMS = {
     sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
     calendarId: 'c_75dae7e7b71d6c86414525f344f9018a0b245cc08756965c47c23fbc47e812f7@group.calendar.google.com',
     mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
+    driveFolderId: '0AJC_ts9JONRuUk9PVA', // Shared Drive — uploadPhoto_ creates a subfolder in here, not in My Drive
   },
   // example: {
   //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
@@ -757,10 +758,15 @@ function uploadPhoto_(teamKey, view, passcode, fields) {
 }
 
 function uploadsFolder_(teamKey) {
-  var name = 'FTC Dashboard Uploads - ' + teamKey;
-  var existing = DriveApp.getFoldersByName(name);
+  var team = TEAMS[teamKey];
+  // Prefer a Shared Drive over My Drive when configured — a folder that
+  // lives under one person's account is a single point of failure for a
+  // team resource, and Shared Drives are free (no Blaze plan needed).
+  var parent = team.driveFolderId ? DriveApp.getFolderById(team.driveFolderId) : DriveApp;
+  var name = team.driveFolderId ? 'Dashboard Uploads' : 'FTC Dashboard Uploads - ' + teamKey;
+  var existing = parent.getFoldersByName(name);
   if (existing.hasNext()) return existing.next();
-  return DriveApp.createFolder(name);
+  return parent.createFolder(name);
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===
