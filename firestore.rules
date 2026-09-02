@@ -46,6 +46,20 @@ service cloud.firestore {
       allow read, write: if signedInAs(teamId);
     }
 
+    // Phase 2: comments (threaded under a goal), the engineering notebook,
+    // and checklist items (portfolio now, competition-day/awards checklists
+    // reuse this same collection with a different checklistName in Phase 4)
+    // — all collaborative, both roles, same as deadlines/subtasks above.
+    match /teams/{teamId}/comments/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+    match /teams/{teamId}/engineeringNotebook/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+    match /teams/{teamId}/checklistItems/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+
     // Mentor notes: mentor view only, both directions — matches
     // handleRead_ omitting mentorNotes from the student payload entirely.
     match /teams/{teamId}/mentorNotes/{id} {

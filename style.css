@@ -926,3 +926,85 @@ section.group.group-alert h2 {
 @media (max-width: 480px) {
   .calendar-day { min-height: 50px; font-size: 0.7rem; }
 }
+
+/* ===== Comments ===== */
+
+.comments-thread {
+  margin-top: 8px;
+}
+
+.comments-add input {
+  flex: 1;
+  min-width: 80px;
+}
+
+/* ===== Notebook & Checklist photos ===== */
+
+.notebook-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.notebook-photos img {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.notebook-entry strong {
+  display: block;
+  margin: 2px 0;
+}
+
+/* ===== Checklist (Portfolio, and later competition/awards) ===== */
+
+.checklist-list {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.checklist-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.checklist-item-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+}
+
+.checklist-item-title {
+  font-weight: 600;
+}
+
+.checklist-item-edit {
+  padding: 0 14px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.checklist-item-edit .row > * { flex: 1; min-width: 120px; }
+
+.checklist-item-edit textarea {
+  min-height: 60px;
+}
+
+.checklist-status-not-started { background: var(--gray-bg); color: var(--gray); }
+.checklist-status-in-progress { background: var(--yellow-bg); color: var(--yellow); }
+.checklist-status-done { background: var(--green-bg); color: var(--green); }

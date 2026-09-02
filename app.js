@@ -175,6 +175,57 @@
     });
   }
 
+  // ===== Photo uploads (Drive, via Apps Script) ===============================
+  // Firestore docs only ever store the resulting Drive URL string — the
+  // actual bytes never touch Firestore (Storage needs the paid Blaze plan).
+  // Resize client-side first: a phone photo straight off a camera can be
+  // several MB, and Apps Script's doPost body has a real size ceiling.
+
+  function resizeImageToBase64_(file, cb) {
+    var reader = new FileReader();
+    reader.onerror = function () { cb(null, null, 'Could not read file'); };
+    reader.onload = function () {
+      var img = new Image();
+      img.onerror = function () { cb(null, null, 'Could not decode image'); };
+      img.onload = function () {
+        var maxEdge = 1600;
+        var scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        var canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        cb(dataUrl.split(',')[1], 'image/jpeg', null);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function uploadPhoto(file, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    resizeImageToBase64_(file, function (base64Data, mimeType, err) {
+      if (err) return cb(null, err);
+      fetch(team.webAppUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          action: 'uploadPhoto',
+          team: state.team,
+          view: VIEW,
+          passcode: state.passcode,
+          fields: { filename: file.name || 'photo.jpg', mimeType: mimeType, base64Data: base64Data },
+        }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (json) {
+          if (!json.ok) return cb(null, json.error);
+          cb(json.url, null);
+        })
+        .catch(function (err2) { cb(null, String(err2)); });
+    });
+  }
+
   // Student view has no gate UI — try the cached (often empty) passcode
   // silently first, matching how student reads were always open before.
   // Only fall back to a prompt if that mint is actually rejected (a
@@ -241,6 +292,23 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    unsubscribers.push(teamRef.collection('comments').onSnapshot(function (snap) {
+      ensureData_().comments = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('engineeringNotebook').onSnapshot(function (snap) {
+      var entries = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      entries.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+      ensureData_().notebook = entries;
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    unsubscribers.push(teamRef.collection('checklistItems').onSnapshot(function (snap) {
+      ensureData_().checklistItems = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
     unsubscribers.push(teamRef.collection('views').onSnapshot(function (snap) {
       ensureData_().views = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
       recomputeAndRender();
@@ -269,7 +337,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [] };
     return state.data;
   }
 
@@ -297,6 +365,7 @@
       targetDate: g.targetDate || null,
       status: g.status || '',
       notes: g.notes || '',
+      link: g.link || '',
       priorityOrder: g.priorityOrder == null ? null : g.priorityOrder,
       daysLeft: daysLeft_(targetDate),
       workHoursLeft: g.workHoursLeft == null ? null : g.workHoursLeft,
@@ -553,6 +622,18 @@
       card.appendChild(notesP);
     }
 
+    if (item.link) {
+      var linkP = document.createElement('div');
+      linkP.className = 'card-notes';
+      var linkA = document.createElement('a');
+      linkA.href = item.link;
+      linkA.target = '_blank';
+      linkA.rel = 'noopener';
+      linkA.textContent = '🔗 ' + fileLinkLabel(item.link);
+      linkP.appendChild(linkA);
+      card.appendChild(linkP);
+    }
+
     var actions = document.createElement('div');
     actions.className = 'card-actions';
     var editBtn = document.createElement('button');
@@ -560,6 +641,15 @@
     editBtn.textContent = 'Edit';
     editBtn.addEventListener('click', function () { toggleEdit(card, item); });
     actions.appendChild(editBtn);
+
+    if (item.type === 'goal') {
+      var commentCount = commentsFor(item.id).length;
+      var commentBtn = document.createElement('button');
+      commentBtn.className = 'secondary';
+      commentBtn.textContent = '💬 ' + (commentCount || 'Comment');
+      commentBtn.addEventListener('click', function () { toggleComments(card, item); });
+      actions.appendChild(commentBtn);
+    }
 
     if (item.targetDate) {
       var calBtn = document.createElement('a');
@@ -574,6 +664,15 @@
     card.appendChild(actions);
 
     return card;
+  }
+
+  function fileLinkLabel(url) {
+    try {
+      var host = new URL(url).hostname.replace(/^www\./, '');
+      return host;
+    } catch (e) {
+      return 'View file';
+    }
   }
 
   // Google Calendar's "quick add" template URL — opens in a new tab, the
@@ -604,7 +703,7 @@
     var wrap = document.createElement('div');
     wrap.className = 'card-notes card-notes-edit';
 
-    var statusSelect;
+    var statusSelect, linkInput;
     if (item.type === 'goal') {
       statusSelect = document.createElement('select');
       ['Not started', 'Green', 'Yellow', 'Red', 'Done'].forEach(function (s) {
@@ -622,6 +721,14 @@
     textarea.placeholder = 'What moved since last time?';
     wrap.appendChild(textarea);
 
+    if (item.type === 'goal') {
+      linkInput = document.createElement('input');
+      linkInput.type = 'text';
+      linkInput.value = item.link || '';
+      linkInput.placeholder = 'Link to CAD/design file/doc (optional)';
+      wrap.appendChild(linkInput);
+    }
+
     var row = document.createElement('div');
     row.className = 'card-actions';
     var saveBtn = document.createElement('button');
@@ -636,6 +743,7 @@
     saveBtn.addEventListener('click', function () {
       var fields = { lastUpdate: textarea.value };
       if (statusSelect) fields.status = statusSelect.value;
+      if (linkInput) fields.link = linkInput.value.trim();
       var action = item.type === 'deadline' ? 'updateDeadline' : 'updateGoal';
       if (item.type === 'deadline') fields = { notes: textarea.value };
       post(action, item.id, fields, function (ok) {
@@ -645,6 +753,71 @@
 
     card.appendChild(wrap);
     card.appendChild(row);
+  }
+
+  // ===== Comments (threaded under a goal) =====================================
+
+  function commentsFor(goalId) {
+    var all = (state.data && state.data.comments) || [];
+    return all.filter(function (c) { return c.goalId === goalId; });
+  }
+
+  function toggleComments(card, item) {
+    var existing = card.querySelector('.comments-thread');
+    if (existing) { existing.remove(); return; }
+
+    var wrap = document.createElement('div');
+    wrap.className = 'comments-thread';
+
+    var list = document.createElement('div');
+    renderCommentList(list, commentsFor(item.id));
+    wrap.appendChild(list);
+
+    var form = document.createElement('div');
+    form.className = 'card-actions comments-add';
+    var authorInput = document.createElement('input');
+    authorInput.type = 'text';
+    authorInput.placeholder = 'Your name';
+    var textInput = document.createElement('input');
+    textInput.type = 'text';
+    textInput.placeholder = 'Add a comment…';
+    var sendBtn = document.createElement('button');
+    sendBtn.textContent = 'Post';
+    sendBtn.addEventListener('click', function () {
+      var author = authorInput.value.trim();
+      var text = textInput.value.trim();
+      if (!author || !text) return toast('Name and a comment are required');
+      post('addComment', null, { goalId: item.id, author: author, text: text }, function (ok) {
+        if (ok) { textInput.value = ''; }
+      });
+    });
+    form.appendChild(authorInput);
+    form.appendChild(textInput);
+    form.appendChild(sendBtn);
+    wrap.appendChild(form);
+
+    card.appendChild(wrap);
+  }
+
+  function renderCommentList(container, comments) {
+    container.innerHTML = '';
+    if (!comments.length) {
+      container.innerHTML = '<p class="empty-state">No comments yet.</p>';
+      return;
+    }
+    comments.slice().sort(function (a, b) { return (a.createdAt || '').localeCompare(b.createdAt || ''); })
+      .forEach(function (c) {
+        var entry = document.createElement('div');
+        entry.className = 'note-entry';
+        var meta = document.createElement('div');
+        meta.className = 'note-meta';
+        meta.textContent = (c.author || 'Unknown') + ' · ' + (c.createdAt ? new Date(c.createdAt).toLocaleString() : '');
+        var text = document.createElement('div');
+        text.textContent = c.text;
+        entry.appendChild(meta);
+        entry.appendChild(text);
+        container.appendChild(entry);
+      });
   }
 
   function renderNotes(container, notes) {
@@ -698,6 +871,7 @@
       var patch = {};
       if ('status' in fields) patch.status = fields.status;
       if ('lastUpdate' in fields) patch.notes = fields.lastUpdate;
+      if ('link' in fields) patch.link = fields.link;
       if ('startDate' in fields) patch.startDate = new Date(fields.startDate).toISOString();
       if ('targetDate' in fields) patch.targetDate = new Date(fields.targetDate).toISOString();
       return teamRef_().collection('goals').doc(id).update(patch);
@@ -760,6 +934,15 @@
       });
     },
 
+    addComment: function (id, fields) {
+      return teamRef_().collection('comments').add({
+        goalId: fields.goalId,
+        author: fields.author,
+        text: fields.text,
+        createdAt: new Date().toISOString(),
+      });
+    },
+
     reorderGoals: function (id, fields) {
       var subtype = fields.sheetName === 'Team Goals' ? 'team' : 'personal';
       var batch = db.batch();
@@ -806,6 +989,50 @@
 
     deleteView: function (id) {
       return teamRef_().collection('views').doc(id).delete();
+    },
+
+    addNotebookEntry: function (id, fields) {
+      return teamRef_().collection('engineeringNotebook').add({
+        author: fields.author,
+        title: fields.title,
+        body: fields.body,
+        photos: fields.photos || [],
+        date: fields.date || new Date().toISOString().slice(0, 10),
+        createdAt: new Date().toISOString(),
+      });
+    },
+
+    deleteNotebookEntry: function (id) {
+      return teamRef_().collection('engineeringNotebook').doc(id).delete();
+    },
+
+    // checklistItems is shared by the Portfolio tab today and Phase 4's
+    // competition-day/awards checklists later — fields.checklistName is
+    // what separates one checklist's items from another's.
+    addChecklistItem: function (id, fields) {
+      return teamRef_().collection('checklistItems').add({
+        checklistName: fields.checklistName,
+        title: fields.title,
+        status: fields.status || 'Not started',
+        owner: fields.owner || '',
+        notes: fields.notes || '',
+        photos: fields.photos || [],
+        createdAt: new Date().toISOString(),
+      });
+    },
+
+    updateChecklistItem: function (id, fields) {
+      var patch = {};
+      if ('title' in fields) patch.title = fields.title;
+      if ('status' in fields) patch.status = fields.status;
+      if ('owner' in fields) patch.owner = fields.owner;
+      if ('notes' in fields) patch.notes = fields.notes;
+      if ('photos' in fields) patch.photos = fields.photos;
+      return teamRef_().collection('checklistItems').doc(id).update(patch);
+    },
+
+    deleteChecklistItem: function (id) {
+      return teamRef_().collection('checklistItems').doc(id).delete();
     },
   };
 
@@ -913,6 +1140,7 @@
     escapeHtml: escapeHtml,
     urgencyClass: urgencyClass,
     buildCard: buildCard, // the editable card (Edit + Add-to-calendar) used everywhere else — reuse it, don't rebuild it
+    uploadPhoto: uploadPhoto,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every

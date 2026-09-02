@@ -112,6 +112,8 @@ function handleRequest_(e, isPost) {
     var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {});
     if (params.action === 'mintToken') {
       result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode);
+    } else if (params.action === 'uploadPhoto') {
+      result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else {
       result = isPost ? handleWrite_(params) : handleRead_(params);
     }
@@ -724,6 +726,41 @@ function base64UrlEncodeString_(s) {
 
 function base64UrlEncodeBytes_(bytes) {
   return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, '');
+}
+
+// ===== Photo uploads (Google Drive) =========================================
+// Firebase Storage needs a paid Blaze plan for a new project's default
+// bucket — a real cost, not just friction — so photos (portfolio sections,
+// engineering notebook entries) go to Drive instead: same free-forever
+// story as everything else here. The client sends a small base64 image;
+// this drops it in a per-team folder, makes it link-viewable, and hands
+// back a URL the client stores as a plain string field on the Firestore
+// doc — Code.gs never touches Firestore for this, it's pure Drive work.
+
+function uploadPhoto_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  if (!fields.base64Data || !fields.filename) {
+    return { ok: false, error: 'filename and base64Data are required' };
+  }
+
+  var bytes = Utilities.base64Decode(fields.base64Data);
+  var blob = Utilities.newBlob(bytes, fields.mimeType || 'image/jpeg', fields.filename);
+  var folder = uploadsFolder_(teamKey);
+  var file = folder.createFile(blob);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+
+  return { ok: true, url: 'https://drive.google.com/thumbnail?id=' + file.getId() + '&sz=w1600' };
+}
+
+function uploadsFolder_(teamKey) {
+  var name = 'FTC Dashboard Uploads - ' + teamKey;
+  var existing = DriveApp.getFoldersByName(name);
+  if (existing.hasNext()) return existing.next();
+  return DriveApp.createFolder(name);
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===

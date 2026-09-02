@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FTC Deadlines</title>
-<link rel="stylesheet" href="style.css?v=08b40e6">
+<link rel="stylesheet" href="style.css?v=8fd1c42">
 </head>
 <body>
 <header>
@@ -22,6 +22,8 @@
   <button class="tab-btn" data-tab="calendar">Calendar</button>
   <button class="tab-btn" data-tab="board">Board</button>
   <button class="tab-btn" data-tab="workload">Workload</button>
+  <button class="tab-btn" data-tab="notebook">Notebook</button>
+  <button class="tab-btn" data-tab="portfolio">Portfolio</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
   <button class="tab-btn" data-tab="season">Season</button>
   <button class="tab-btn" data-tab="metrics">Metrics</button>
@@ -196,6 +198,41 @@
     <div id="workload-list"></div>
   </div>
 
+  <div class="tab-panel" data-tab="notebook">
+    <section class="group">
+      <h2>Engineering Notebook</h2>
+      <p class="card-meta">Dated entries for the judging record — what you worked on, why, and photos of it. Once added, an entry stays as-is.</p>
+      <details>
+        <summary><strong>+ Add an entry</strong></summary>
+        <form class="add-form" id="add-notebook-form">
+          <div class="row">
+            <input type="text" name="author" placeholder="Your name" required>
+            <input type="date" name="date">
+          </div>
+          <div class="row">
+            <input type="text" name="title" placeholder="Title (optional)">
+          </div>
+          <textarea name="body" placeholder="What did you work on?" required></textarea>
+          <div class="row">
+            <input type="file" accept="image/*">
+          </div>
+          <button type="submit">Add entry</button>
+        </form>
+      </details>
+    </section>
+    <section class="group">
+      <div id="notebook-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="portfolio">
+    <section class="group">
+      <h2>Portfolio</h2>
+      <p class="card-meta">Track the 15-page portfolio section by section — status, owner, notes, and photos of finished pages.</p>
+      <div id="portfolio-checklist" data-checklist-name="portfolio"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="checkin">
     <section class="group">
       <h2>Due this week</h2>
@@ -280,17 +317,19 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="config/teams.js?v=08b40e6"></script>
-<script src="config/firebase.js?v=08b40e6"></script>
-<script src="app.js?v=08b40e6"></script>
-<script src="charts.js?v=08b40e6"></script>
-<script src="gantt.js?v=08b40e6"></script>
-<script src="checkin.js?v=08b40e6"></script>
-<script src="season.js?v=08b40e6"></script>
-<script src="metrics.js?v=08b40e6"></script>
-<script src="todo.js?v=08b40e6"></script>
-<script src="calendar.js?v=08b40e6"></script>
-<script src="kanban.js?v=08b40e6"></script>
-<script src="workload.js?v=08b40e6"></script>
+<script src="config/teams.js?v=8fd1c42"></script>
+<script src="config/firebase.js?v=8fd1c42"></script>
+<script src="app.js?v=8fd1c42"></script>
+<script src="charts.js?v=8fd1c42"></script>
+<script src="gantt.js?v=8fd1c42"></script>
+<script src="checkin.js?v=8fd1c42"></script>
+<script src="season.js?v=8fd1c42"></script>
+<script src="metrics.js?v=8fd1c42"></script>
+<script src="todo.js?v=8fd1c42"></script>
+<script src="calendar.js?v=8fd1c42"></script>
+<script src="kanban.js?v=8fd1c42"></script>
+<script src="workload.js?v=8fd1c42"></script>
+<script src="notebook.js?v=8fd1c42"></script>
+<script src="checklist.js?v=8fd1c42"></script>
 </body>
 </html>
