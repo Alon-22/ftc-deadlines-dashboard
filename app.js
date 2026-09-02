@@ -120,7 +120,8 @@
   function showTab(name) {
     el.tabButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.tab === name); });
     el.tabPanels.forEach(function (panel) { panel.classList.toggle('active', panel.dataset.tab === name); });
-    el.main.classList.toggle('wide', name === 'timeline'); // Gantt wants more width than the card tabs do
+    // Gantt, the Kanban board, and the calendar grid all want more width than the card tabs do
+    el.main.classList.toggle('wide', name === 'timeline' || name === 'board' || name === 'calendar');
     localStorage.setItem('lastTab:' + VIEW, name);
   }
 

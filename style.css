@@ -758,3 +758,171 @@ section.group.group-alert h2 {
   .todo-goal { break-inside: avoid; border: 1px solid #000; }
   .todo-person { break-inside: avoid-page; }
 }
+
+/* ===== Board (Kanban) ===== */
+
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.kanban-column {
+  flex: 0 0 240px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding-bottom: 8px;
+  transition: background 0.1s ease;
+}
+
+.kanban-column.drop-target {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  border-color: var(--accent);
+}
+
+.kanban-column-header {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.kanban-column.status-green .kanban-column-header { color: var(--green); }
+.kanban-column.status-yellow .kanban-column-header { color: var(--yellow); }
+.kanban-column.status-red .kanban-column-header { color: var(--red); }
+.kanban-column.status-done .kanban-column-header { color: var(--gray); }
+
+.kanban-column-body {
+  padding: 8px;
+  min-height: 40px;
+}
+
+.kanban-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.kanban-card.dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  position: relative;
+  z-index: 5;
+}
+
+.kanban-card-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.kanban-card-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.kanban-card-due {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ===== Workload ===== */
+
+.workload-person {
+  margin-bottom: 8px;
+}
+
+.workload-person-header {
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.workload-person .card-list {
+  margin-top: 8px;
+  margin-left: 8px;
+}
+
+/* ===== Calendar ===== */
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.calendar-weekday {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 0;
+}
+
+.calendar-day {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  min-height: 80px;
+  padding: 4px;
+  font-size: 0.78rem;
+}
+
+.calendar-day.other-month {
+  background: var(--bg);
+  opacity: 0.5;
+}
+
+.calendar-day.today {
+  border-color: var(--accent);
+  border-width: 2px;
+}
+
+.calendar-day-num {
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.calendar-pill {
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: white;
+  background: var(--gray);
+}
+
+.calendar-pill.urgency-red { background: var(--red); }
+.calendar-pill.urgency-yellow { background: var(--yellow); color: var(--text); }
+.calendar-pill.urgency-green { background: var(--green); }
+.calendar-pill.urgency-done { background: var(--gray); }
+
+.calendar-pill-more {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 480px) {
+  .calendar-day { min-height: 50px; font-size: 0.7rem; }
+}

@@ -19,6 +19,9 @@
   <button class="tab-btn" data-tab="personal-goals">Personal Goals</button>
   <button class="tab-btn" data-tab="todo">To-Do</button>
   <button class="tab-btn" data-tab="timeline">Timeline</button>
+  <button class="tab-btn" data-tab="calendar">Calendar</button>
+  <button class="tab-btn" data-tab="board">Board</button>
+  <button class="tab-btn" data-tab="workload">Workload</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
   <button class="tab-btn" data-tab="season">Season</button>
   <button class="tab-btn" data-tab="metrics">Metrics</button>
@@ -156,6 +159,43 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="calendar">
+    <section class="group">
+      <h2>Calendar</h2>
+      <div class="filters">
+        <button type="button" class="secondary" id="calendar-prev">← Prev</button>
+        <button type="button" class="secondary" id="calendar-today">Today</button>
+        <button type="button" class="secondary" id="calendar-next">Next →</button>
+        <span id="calendar-month-label" class="card-meta"></span>
+      </div>
+      <div id="calendar-grid"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="board">
+    <section class="group">
+      <h2>Board</h2>
+      <p class="card-meta">Drag a card to a new column to change its status.</p>
+      <div class="filters">
+        <select id="board-type-filter">
+          <option value="">All goals</option>
+          <option value="team">Team goals</option>
+          <option value="personal">Personal goals</option>
+        </select>
+      </div>
+    </section>
+    <div class="kanban-board" id="kanban-board"></div>
+  </div>
+
+  <div class="tab-panel" data-tab="workload">
+    <section class="group">
+      <h2>Workload</h2>
+      <p class="card-meta">Open (not-Done) goals per person — click a name to see their list.</p>
+      <div id="workload-chart"></div>
+    </section>
+    <div id="workload-list"></div>
+  </div>
+
   <div class="tab-panel" data-tab="checkin">
     <section class="group">
       <h2>Due this week</h2>
@@ -249,5 +289,8 @@
 <script src="season.js?v=d8142b3"></script>
 <script src="metrics.js?v=d8142b3"></script>
 <script src="todo.js?v=d8142b3"></script>
+<script src="calendar.js?v=d8142b3"></script>
+<script src="kanban.js?v=d8142b3"></script>
+<script src="workload.js?v=d8142b3"></script>
 </body>
 </html>
