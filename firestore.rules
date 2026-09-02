@@ -1,0 +1,64 @@
+rules_version = '2';
+
+// Access is gated by custom claims {team, role} embedded in a Firebase
+// custom token minted by Code.gs's mintToken_ (see apps-script/Code.gs)
+// after it runs the same checkPasscode_ check the old Sheets backend used.
+// There is no per-user identity here, same as the passcode system this
+// replaces — request.auth.token.team/role is the team+role the shared
+// passcode unlocked, not a personal account.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedInAs(teamId) {
+      return request.auth != null && request.auth.token.team == teamId;
+    }
+
+    function isMentor() {
+      return request.auth.token.role == 'mentor';
+    }
+
+    // Team doc itself: readable once signed in for that team, never
+    // writable by the app — only by us directly (console / migration
+    // script), same trust boundary as editing TEAMS in Code.gs today.
+    match /teams/{teamId} {
+      allow read: if signedInAs(teamId);
+      allow write: if false;
+    }
+
+    // Goals: full read/write for anyone signed in as this team, except a
+    // student can't read a mentor-owned personal goal — mirrors the
+    // isMentorOwned filtering handleRead_ already does today.
+    match /teams/{teamId}/goals/{goalId} {
+      allow read: if signedInAs(teamId) &&
+        (isMentor() || resource.data.isMentorOwned != true);
+      allow write: if signedInAs(teamId);
+    }
+
+    // Deadlines, subtasks, saved metric views: both roles, matches the
+    // fully-open behavior these already have in the Sheets backend.
+    match /teams/{teamId}/deadlines/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+    match /teams/{teamId}/subtasks/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+    match /teams/{teamId}/views/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+
+    // Mentor notes: mentor view only, both directions — matches
+    // handleRead_ omitting mentorNotes from the student payload entirely.
+    match /teams/{teamId}/mentorNotes/{id} {
+      allow read, write: if signedInAs(teamId) && isMentor();
+    }
+
+    // Season Log: everyone can read the season history, but only a mentor
+    // can write it — this is where "archive completed goals" (a batch
+    // move of Done goals out of /goals and into /seasonLog, replacing the
+    // old Sheets-menu script) is gated.
+    match /teams/{teamId}/seasonLog/{id} {
+      allow read: if signedInAs(teamId);
+      allow write: if signedInAs(teamId) && isMentor();
+    }
+  }
+}

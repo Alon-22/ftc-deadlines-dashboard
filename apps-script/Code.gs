@@ -110,7 +110,11 @@ function handleRequest_(e, isPost) {
   var result;
   try {
     var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {});
-    result = isPost ? handleWrite_(params) : handleRead_(params);
+    if (params.action === 'mintToken') {
+      result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode);
+    } else {
+      result = isPost ? handleWrite_(params) : handleRead_(params);
+    }
   } catch (err) {
     result = { ok: false, error: String(err && err.message ? err.message : err) };
   }
@@ -664,6 +668,62 @@ function checkPasscode_(teamKey, view, passcode) {
 function setPasscode_(teamKey, view, passcode) {
   PropertiesService.getScriptProperties()
       .setProperty('PASSCODE_' + view.toUpperCase() + '_' + teamKey, passcode);
+}
+
+// ===== Firebase auth (custom token) ========================================
+// Firestore has no idea what a "team passcode" is, so the frontend can't
+// talk to it directly until it's signed in. This mints a Firebase custom
+// token the exact same way the old system gated access — run the existing
+// checkPasscode_ check, and on success hand back a token carrying
+// {team, role} as custom claims. signInWithCustomToken() on the client
+// turns that into a real Firebase ID token, and Firestore Security Rules
+// read request.auth.token.team/role directly — no separate per-user
+// account, no Admin SDK call, no Cloud Function.
+
+var FIREBASE_TOKEN_AUD =
+    'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
+
+function mintToken_(teamKey, view, passcode) {
+  if (!TEAMS[teamKey]) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var uid = teamKey + '_' + view; // no per-user identity — everyone sharing this passcode shares this uid
+  var token = signFirebaseCustomToken_(uid, { team: teamKey, role: view });
+  return { ok: true, token: token };
+}
+
+function serviceAccount_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('FIREBASE_SERVICE_ACCOUNT_JSON');
+  if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is not set in Script Properties');
+  return JSON.parse(raw);
+}
+
+function signFirebaseCustomToken_(uid, claims) {
+  var sa = serviceAccount_();
+  var now = Math.floor(Date.now() / 1000);
+  var header = { alg: 'RS256', typ: 'JWT' };
+  var payload = {
+    iss: sa.client_email,
+    sub: sa.client_email,
+    aud: FIREBASE_TOKEN_AUD,
+    iat: now,
+    exp: now + 3600,
+    uid: uid,
+    claims: claims,
+  };
+  var signingInput = base64UrlEncodeString_(JSON.stringify(header)) + '.' +
+      base64UrlEncodeString_(JSON.stringify(payload));
+  var signatureBytes = Utilities.computeRsaSha256Signature(signingInput, sa.private_key);
+  return signingInput + '.' + base64UrlEncodeBytes_(signatureBytes);
+}
+
+function base64UrlEncodeString_(s) {
+  return base64UrlEncodeBytes_(Utilities.newBlob(s).getBytes());
+}
+
+function base64UrlEncodeBytes_(bytes) {
+  return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, '');
 }
 
 // ===== One-time per-team sheet setup =======================================
