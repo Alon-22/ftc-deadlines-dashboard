@@ -841,6 +841,186 @@ function seedTeamDocs_() {
   return { ok: true, teams: results };
 }
 
+/**
+ * One-time migration: copies every team's Sheet data into Firestore.
+ * Run manually from the editor after seedTeamDocs_. Reuses the same
+ * readSheetRows_/cell_/textCell_/toDate_ helpers handleRead_ already uses
+ * — same header-row detection, same Date-vs-time-only-cell handling — so
+ * nothing gets reparsed differently between the live Sheets backend and
+ * this export. Row ID (already a real UUID on every tab except Season
+ * Log) becomes the Firestore document ID directly, so every existing
+ * cross-reference (Subtasks.goalId -> a goal) survives untouched.
+ *
+ * Safe to re-run: every write is a set (create-or-replace) keyed by that
+ * same Row ID, so running it again just re-syncs the same documents
+ * rather than duplicating them — except Season Log, which has no Row ID
+ * in the sheet and gets a fresh UUID minted per row on every run, so
+ * re-running WOULD duplicate season log entries. Only run it more than
+ * once if you're doing a fresh migration before any real cutover.
+ */
+function migrateToFirestore_() {
+  var results = {};
+  Object.keys(TEAMS).forEach(function(teamKey) {
+    results[teamKey] = migrateTeamToFirestore_(teamKey);
+  });
+  Logger.log('Migration results: ' + JSON.stringify(results));
+  return results;
+}
+
+function migrateTeamToFirestore_(teamKey) {
+  var team = TEAMS[teamKey];
+  var ss = SpreadsheetApp.openById(team.sheetId);
+  var mentors = team.mentors || [];
+
+  // Catches any row added since the last setupAllTeams() run.
+  setupTeamSheet_(team.sheetId);
+
+  var counts = { goals: 0, deadlines: 0, mentorNotes: 0, subtasks: 0, views: 0, seasonLog: 0 };
+
+  GOAL_TAB_CONFIGS.forEach(function(cfg) {
+    var sheet = ss.getSheetByName(cfg.sheetName);
+    if (!sheet) return;
+    var table = readSheetRows_(sheet, cfg.columns.goal);
+    table.rows.forEach(function(row) {
+      var goalTitle = textCell_(row, table.headerIndex, cfg.columns.goal);
+      if (!goalTitle) return;
+      var rowId = cell_(row, table.headerIndex, ROW_ID_COLUMN);
+      if (!rowId) return;
+      var owner = textCell_(row, table.headerIndex, cfg.columns.owner);
+      var owners = owner ? owner.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [];
+      var startDate = toDate_(cell_(row, table.headerIndex, cfg.columns.startDate));
+      var targetDate = toDate_(cell_(row, table.headerIndex, cfg.columns.targetDate));
+      var priorityRaw = cell_(row, table.headerIndex, cfg.columns.priorityOrder);
+
+      firestoreSetDoc_('teams/' + teamKey + '/goals/' + rowId, firestoreFields_({
+        title: goalTitle,
+        owner: owner,
+        owners: owners,
+        group: textCell_(row, table.headerIndex, cfg.columns.group),
+        subtype: cfg.subtype,
+        status: textCell_(row, table.headerIndex, cfg.columns.status),
+        notes: textCell_(row, table.headerIndex, cfg.columns.lastUpdate),
+        startDate: startDate ? startDate.toISOString() : null,
+        targetDate: targetDate ? targetDate.toISOString() : null,
+        priorityOrder: priorityRaw === '' ? null : Number(priorityRaw),
+        isMentorOwned: cfg.subtype === 'personal' && ownerIsMentor_(owner, mentors),
+      }));
+      counts.goals++;
+    });
+  });
+
+  var deadlinesSheet = ss.getSheetByName(DEADLINES_TAB);
+  if (deadlinesSheet) {
+    var dTable = readSheetRows_(deadlinesSheet, 'Event name');
+    dTable.rows.forEach(function(row) {
+      var title = textCell_(row, dTable.headerIndex, 'Event name');
+      if (!title) return;
+      var rowId = cell_(row, dTable.headerIndex, ROW_ID_COLUMN);
+      if (!rowId) return;
+      var targetDate = toDate_(cell_(row, dTable.headerIndex, 'Date'));
+      firestoreSetDoc_('teams/' + teamKey + '/deadlines/' + rowId, firestoreFields_({
+        title: title,
+        targetDate: targetDate ? targetDate.toISOString() : null,
+        eventType: textCell_(row, dTable.headerIndex, 'Type') || 'Other',
+        notes: textCell_(row, dTable.headerIndex, 'Notes'),
+      }));
+      counts.deadlines++;
+    });
+  }
+
+  var notesSheet = ss.getSheetByName(MENTOR_NOTES_TAB);
+  if (notesSheet) {
+    var nTable = readSheetRows_(notesSheet, 'Note');
+    nTable.rows.forEach(function(row) {
+      var note = textCell_(row, nTable.headerIndex, 'Note');
+      if (!note) return;
+      var rowId = cell_(row, nTable.headerIndex, ROW_ID_COLUMN);
+      if (!rowId) return;
+      var date = toDate_(cell_(row, nTable.headerIndex, 'Date'));
+      firestoreSetDoc_('teams/' + teamKey + '/mentorNotes/' + rowId, firestoreFields_({
+        mentor: textCell_(row, nTable.headerIndex, 'Mentor'),
+        note: note,
+        date: date ? date.toISOString() : new Date().toISOString(),
+      }));
+      counts.mentorNotes++;
+    });
+  }
+
+  var subtasksSheet = ss.getSheetByName(SUBTASKS_TAB);
+  if (subtasksSheet) {
+    var sTable = readSheetRows_(subtasksSheet, 'Text');
+    sTable.rows.forEach(function(row) {
+      var text = textCell_(row, sTable.headerIndex, 'Text');
+      if (!text) return;
+      var rowId = cell_(row, sTable.headerIndex, ROW_ID_COLUMN);
+      if (!rowId) return;
+      var createdAt = toDate_(cell_(row, sTable.headerIndex, 'Created At'));
+      var completedAt = toDate_(cell_(row, sTable.headerIndex, 'Completed At'));
+      firestoreSetDoc_('teams/' + teamKey + '/subtasks/' + rowId, firestoreFields_({
+        goalId: textCell_(row, sTable.headerIndex, 'Goal ID'),
+        owner: textCell_(row, sTable.headerIndex, 'Owner'),
+        weekOf: textCell_(row, sTable.headerIndex, 'Week Of'),
+        text: text,
+        done: String(cell_(row, sTable.headerIndex, 'Done')).toUpperCase() === 'TRUE',
+        createdAt: createdAt ? createdAt.toISOString() : new Date().toISOString(),
+        completedAt: completedAt ? completedAt.toISOString() : null,
+      }));
+      counts.subtasks++;
+    });
+  }
+
+  var viewsSheet = ss.getSheetByName(VIEWS_TAB);
+  if (viewsSheet) {
+    var vTable = readSheetRows_(viewsSheet, 'Name');
+    vTable.rows.forEach(function(row) {
+      var name = textCell_(row, vTable.headerIndex, 'Name');
+      if (!name) return;
+      var rowId = cell_(row, vTable.headerIndex, ROW_ID_COLUMN);
+      if (!rowId) return;
+      var config = {};
+      try { config = JSON.parse(textCell_(row, vTable.headerIndex, 'Config')); } catch (err) { config = {}; }
+      firestoreSetDoc_('teams/' + teamKey + '/views/' + rowId, firestoreFields_({
+        name: name,
+        config: config,
+        createdBy: textCell_(row, vTable.headerIndex, 'Created By'),
+      }));
+      counts.views++;
+    });
+  }
+
+  // No Row ID column here (confirmed: the separate "Gantt chart updater"
+  // script that archives Done goals into this tab never added one) — mint
+  // a fresh id per row for the Firestore doc.
+  var logSheet = ss.getSheetByName(SEASON_LOG_TAB);
+  if (logSheet) {
+    var lTable = readSheetRows_(logSheet, 'Archived on');
+    lTable.rows.forEach(function(row) {
+      var title = textCell_(row, lTable.headerIndex, 'Goal');
+      if (!title) return;
+      var startDate = toDate_(cell_(row, lTable.headerIndex, 'Start date'));
+      var targetDate = toDate_(cell_(row, lTable.headerIndex, 'Target date'));
+      var finishedOn = toDate_(cell_(row, lTable.headerIndex, 'Finished on'));
+      var archivedOn = toDate_(cell_(row, lTable.headerIndex, 'Archived on'));
+      var varianceRaw = cell_(row, lTable.headerIndex, 'Early (-) / Late (+)');
+      firestoreSetDoc_('teams/' + teamKey + '/seasonLog/' + Utilities.getUuid(), firestoreFields_({
+        type: textCell_(row, lTable.headerIndex, 'Type'),
+        title: title,
+        owner: textCell_(row, lTable.headerIndex, 'Owner'),
+        group: textCell_(row, lTable.headerIndex, 'Subteam / skill'),
+        startDate: startDate ? startDate.toISOString() : null,
+        targetDate: targetDate ? targetDate.toISOString() : null,
+        finishedOn: finishedOn ? finishedOn.toISOString() : null,
+        varianceDays: varianceRaw === '' ? null : Number(varianceRaw),
+        notes: textCell_(row, lTable.headerIndex, 'Notes / who I told'),
+        archivedOn: archivedOn ? archivedOn.toISOString() : null,
+      }));
+      counts.seasonLog++;
+    });
+  }
+
+  return counts;
+}
+
 // ===== One-time per-team sheet setup =======================================
 
 /** Run manually from the editor after populating TEAMS. */
