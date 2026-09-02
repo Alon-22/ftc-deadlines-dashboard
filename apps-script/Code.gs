@@ -726,6 +726,121 @@ function base64UrlEncodeBytes_(bytes) {
   return Utilities.base64EncodeWebSafe(bytes).replace(/=+$/, '');
 }
 
+// ===== Firestore admin access (service account, bypasses Security Rules) ===
+// mintToken_ above signs tokens for the FRONTEND — real users, gated by
+// Security Rules. This is different: a Google OAuth2 access token for the
+// service account itself, used only from Code.gs (migration script, daily
+// digest, seeding a team doc) to read/write Firestore directly as an admin.
+// Same JWT-bearer mechanics as mintToken_, different audience/scope, and
+// cached for its lifetime so a burst of calls doesn't re-mint every time.
+
+var FIRESTORE_ADMIN_SCOPE = 'https://www.googleapis.com/auth/datastore';
+var GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
+
+function adminAccessToken_() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('FIRESTORE_ADMIN_TOKEN');
+  if (cached) return cached;
+
+  var sa = serviceAccount_();
+  var now = Math.floor(Date.now() / 1000);
+  var header = { alg: 'RS256', typ: 'JWT' };
+  var payload = {
+    iss: sa.client_email,
+    scope: FIRESTORE_ADMIN_SCOPE,
+    aud: GOOGLE_TOKEN_URI,
+    iat: now,
+    exp: now + 3600,
+  };
+  var signingInput = base64UrlEncodeString_(JSON.stringify(header)) + '.' +
+      base64UrlEncodeString_(JSON.stringify(payload));
+  var signatureBytes = Utilities.computeRsaSha256Signature(signingInput, sa.private_key);
+  var jwt = signingInput + '.' + base64UrlEncodeBytes_(signatureBytes);
+
+  var resp = UrlFetchApp.fetch(GOOGLE_TOKEN_URI, {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: {
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: jwt,
+    },
+    muteHttpExceptions: true,
+  });
+  var body = JSON.parse(resp.getContentText());
+  if (!body.access_token) throw new Error('Failed to get admin access token: ' + resp.getContentText());
+
+  // Cache for a bit less than its real lifetime so we never hand out one
+  // that's about to expire mid-request.
+  cache.put('FIRESTORE_ADMIN_TOKEN', body.access_token, Math.min(body.expires_in - 60, 1500));
+  return body.access_token;
+}
+
+function firestoreBaseUrl_() {
+  return 'https://firestore.googleapis.com/v1/projects/' + serviceAccount_().project_id + '/databases/(default)/documents';
+}
+
+/** Admin GET of one Firestore document. Returns null if it doesn't exist. */
+function firestoreGetDoc_(path) {
+  var resp = UrlFetchApp.fetch(firestoreBaseUrl_() + '/' + path, {
+    headers: { Authorization: 'Bearer ' + adminAccessToken_() },
+    muteHttpExceptions: true,
+  });
+  if (resp.getResponseCode() === 404) return null;
+  return JSON.parse(resp.getContentText());
+}
+
+/** Admin create-or-replace of one Firestore document at an exact path. */
+function firestoreSetDoc_(path, fields) {
+  var resp = UrlFetchApp.fetch(firestoreBaseUrl_() + '/' + path, {
+    method: 'patch',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + adminAccessToken_() },
+    payload: JSON.stringify({ fields: fields }),
+    muteHttpExceptions: true,
+  });
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error('Firestore write failed (' + code + '): ' + resp.getContentText());
+  return JSON.parse(resp.getContentText());
+}
+
+/** Converts a plain JS value into a Firestore REST API typed Value wrapper. */
+function firestoreValue_(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return isFinite(v) && Math.floor(v) === v ? { integerValue: String(v) } : { doubleValue: v };
+  if (v instanceof Date) return { timestampValue: v.toISOString() };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(firestoreValue_) } };
+  if (typeof v === 'object') return { mapValue: { fields: firestoreFields_(v) } };
+  return { stringValue: String(v) };
+}
+
+/** Converts a plain JS object into a Firestore REST API `fields` map. */
+function firestoreFields_(obj) {
+  var fields = {};
+  Object.keys(obj).forEach(function(k) { fields[k] = firestoreValue_(obj[k]); });
+  return fields;
+}
+
+/**
+ * Run manually from the editor, once, after TEAMS is populated and
+ * FIREBASE_SERVICE_ACCOUNT_JSON is set. Creates/updates the teams/{teamKey}
+ * doc for every team — the one Firestore write app users can never make
+ * themselves (Security Rules lock it to "if false").
+ */
+function seedTeamDocs_() {
+  var results = [];
+  Object.keys(TEAMS).forEach(function(teamKey) {
+    var team = TEAMS[teamKey];
+    firestoreSetDoc_('teams/' + teamKey, firestoreFields_({
+      calendarId: team.calendarId || '',
+      mentors: team.mentors || [],
+    }));
+    results.push(teamKey);
+  });
+  Logger.log('Seeded team docs: ' + JSON.stringify(results));
+  return { ok: true, teams: results };
+}
+
 // ===== One-time per-team sheet setup =======================================
 
 /** Run manually from the editor after populating TEAMS. */
