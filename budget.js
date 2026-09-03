@@ -15,6 +15,7 @@
     summary: document.getElementById('budget-summary'),
     list: document.getElementById('budget-list'),
     form: document.getElementById('add-part-form'),
+    formStatus: document.getElementById('add-part-lookup-status'),
     requestList: document.getElementById('budget-request-list'), // mentor.html only
   };
   if (!el.list && !el.form) return; // no Budget tab on this page
@@ -29,6 +30,67 @@
 
   function money(n) {
     return '$' + n.toFixed(2);
+  }
+
+  // ===== "Paste a link" auto-fill ==============================================
+  // Vendor comes from the URL's hostname — instant, no network call. Cost is
+  // a best-effort server-side page scrape (Code.gs's lookupPartPrice_, since
+  // a browser can't fetch a cross-origin vendor page itself); it can come
+  // back empty for sites it can't parse, which is expected, not an error.
+
+  var KNOWN_VENDORS = {
+    'andymark.com': 'AndyMark',
+    'servocity.com': 'ServoCity',
+    'revrobotics.com': 'REV Robotics',
+    'gobilda.com': 'goBILDA',
+    'mcmaster.com': 'McMaster-Carr',
+    'amazon.com': 'Amazon',
+    'banebots.com': 'BaneBots',
+    'pitsco.com': 'Pitsco',
+    'digikey.com': 'DigiKey',
+    'vexrobotics.com': 'VEX Robotics',
+  };
+
+  function vendorFromUrl_(url) {
+    try {
+      var host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+      if (KNOWN_VENDORS[host]) return KNOWN_VENDORS[host];
+      var label = host.split('.')[0];
+      return label.charAt(0).toUpperCase() + label.slice(1);
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // Wires one link input up to auto-fill a vendor input (instant) and a
+  // cost input (a lookup call) the moment a link is entered — never
+  // overwrites a value already sitting in either field, so typing your own
+  // vendor/cost first and pasting a link after doesn't clobber it.
+  function wireLinkAutofill(linkInput, vendorInput, costInput, statusEl) {
+    linkInput.addEventListener('change', function () {
+      var url = linkInput.value.trim();
+      if (!url) return;
+
+      if (!vendorInput.value.trim()) {
+        var vendor = vendorFromUrl_(url);
+        if (vendor) {
+          vendorInput.value = vendor;
+          vendorInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+
+      if (costInput.value) return; // already has a cost — don't touch it
+      if (statusEl) statusEl.textContent = '🔍 Looking up price…';
+      DB.lookupPartPrice(url, function (price, err) {
+        if (price != null) {
+          costInput.value = price;
+          costInput.dispatchEvent(new Event('change', { bubbles: true }));
+          if (statusEl) statusEl.textContent = 'Found a price — check it before saving.';
+        } else if (statusEl) {
+          statusEl.textContent = err ? '' : "Couldn't find a price on that page — enter it manually.";
+        }
+      });
+    });
   }
 
   function render() {
@@ -260,12 +322,17 @@
 
     var linkInput = document.createElement('input');
     linkInput.type = 'text';
-    linkInput.placeholder = 'Link to vendor page (optional)';
+    linkInput.placeholder = 'Link to vendor page (optional) — paste one to auto-fill vendor + cost above';
     linkInput.value = part.link || '';
     linkInput.addEventListener('change', function () {
       DB.post('updatePart', part.id, { link: linkInput.value.trim() }, function () {});
     });
     panel.appendChild(linkInput);
+
+    var linkStatus = document.createElement('p');
+    linkStatus.className = 'card-meta';
+    panel.appendChild(linkStatus);
+    wireLinkAutofill(linkInput, vendorInput, costInput, linkStatus);
 
     if (part.link) {
       var linkA = document.createElement('a');
@@ -290,18 +357,21 @@
   }
 
   if (el.form) {
+    if (el.form.link) wireLinkAutofill(el.form.link, el.form.vendor, el.form.cost, el.formStatus);
+
     el.form.addEventListener('submit', function (e) {
       e.preventDefault();
       var item = el.form.item.value.trim();
       if (!item) return;
       DB.post('addPart', null, {
         item: item,
+        link: el.form.link ? el.form.link.value.trim() : '',
         vendor: el.form.vendor.value.trim(),
         cost: el.form.cost.value,
         qty: el.form.qty.value || 1,
         status: el.form.status.value,
       }, function (ok) {
-        if (ok) el.form.reset();
+        if (ok) { el.form.reset(); if (el.formStatus) el.formStatus.textContent = ''; }
       });
     });
   }

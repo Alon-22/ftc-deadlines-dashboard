@@ -119,6 +119,8 @@ function handleRequest_(e, isPost) {
       result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode);
     } else if (params.action === 'uploadPhoto') {
       result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
+    } else if (params.action === 'lookupPartPrice') {
+      result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else {
       result = isPost ? handleWrite_(params) : handleRead_(params);
     }
@@ -771,6 +773,85 @@ function uploadsFolder_(teamKey) {
   var existing = parent.getFoldersByName(name);
   if (existing.hasNext()) return existing.next();
   return parent.createFolder(name);
+}
+
+// ===== Part price lookup (Budget tab "paste a link" auto-fill) =============
+// Best-effort only — this fetches the vendor's page server-side (a browser
+// can't; the vendor's own CORS policy blocks a cross-origin fetch from our
+// frontend) and looks for a price the same three ways search engines do:
+// schema.org JSON-LD structured data first (most reliable when present),
+// then Open Graph/itemprop price meta tags, then a last-resort "first
+// dollar amount on the page" regex. Vendor name itself is derived from the
+// URL's hostname entirely client-side (app.js) — no fetch needed for that.
+
+function lookupPartPrice_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var url = fields.url;
+  if (!/^https?:\/\//i.test(url || '')) {
+    return { ok: false, error: 'Not a valid link' };
+  }
+
+  var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, followRedirects: true });
+  if (resp.getResponseCode() >= 400) {
+    return { ok: false, error: 'Could not load that page (' + resp.getResponseCode() + ')' };
+  }
+  var html = resp.getContentText().slice(0, 400000); // price info is always near the top/in <head> — no need to scan a whole huge page
+  var price = extractPrice_(html);
+  return price == null ? { ok: false, error: 'No price found on that page' } : { ok: true, price: price };
+}
+
+function extractPrice_(html) {
+  var ldMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
+  for (var i = 0; i < ldMatches.length; i++) {
+    var jsonText = ldMatches[i].replace(/^[\s\S]*?>/, '').replace(/<\/script>\s*$/i, '');
+    try {
+      var price = findPriceInJson_(JSON.parse(jsonText));
+      if (price != null) return price;
+    } catch (e) { /* not valid JSON on this page — try the next block, or fall through */ }
+  }
+
+  var metaMatch = html.match(/<meta[^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["'][^>]+content=["']([\d.]+)["']/i) ||
+      html.match(/<meta[^>]+content=["']([\d.]+)["'][^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["']/i);
+  if (metaMatch) return parseFloat(metaMatch[1]);
+
+  var dollarMatch = html.match(/\$\s?(\d{1,5}(?:\.\d{2})?)/);
+  if (dollarMatch) return parseFloat(dollarMatch[1]);
+
+  return null;
+}
+
+/** Walks a parsed JSON-LD object/array looking for a schema.org Offer's `price`. */
+function findPriceInJson_(node) {
+  if (!node || typeof node !== 'object') return null;
+  if (Array.isArray(node)) {
+    for (var i = 0; i < node.length; i++) {
+      var found = findPriceInJson_(node[i]);
+      if (found != null) return found;
+    }
+    return null;
+  }
+  if (node.price != null && !isNaN(parseFloat(node.price))) return parseFloat(node.price);
+  if (node.offers) {
+    var fromOffers = findPriceInJson_(node.offers);
+    if (fromOffers != null) return fromOffers;
+  }
+  if (node['@graph']) {
+    var fromGraph = findPriceInJson_(node['@graph']);
+    if (fromGraph != null) return fromGraph;
+  }
+  var keys = Object.keys(node);
+  for (var k = 0; k < keys.length; k++) {
+    var val = node[keys[k]];
+    if (val && typeof val === 'object') {
+      var fromChild = findPriceInJson_(val);
+      if (fromChild != null) return fromChild;
+    }
+  }
+  return null;
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===

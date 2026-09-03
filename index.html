@@ -245,9 +245,11 @@
         <form class="add-form" id="add-part-form">
           <div class="row">
             <input type="text" name="item" placeholder="Part name" required>
-            <input type="text" name="vendor" placeholder="Vendor (optional)">
+            <input type="text" name="link" placeholder="Paste a link to auto-fill vendor + cost">
           </div>
+          <p class="card-meta" id="add-part-lookup-status"></p>
           <div class="row">
+            <input type="text" name="vendor" placeholder="Vendor (optional)">
             <input type="number" name="cost" step="0.01" placeholder="Cost each">
             <input type="number" name="qty" min="1" placeholder="Qty" value="1">
             <select name="status">

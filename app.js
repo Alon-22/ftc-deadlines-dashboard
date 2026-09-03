@@ -226,6 +226,32 @@
     });
   }
 
+  // Best-effort price lookup for the Budget tab's "paste a link" auto-fill
+  // — Code.gs fetches the vendor page server-side (a browser can't; the
+  // vendor's CORS policy blocks a cross-origin fetch from here) and scrapes
+  // for a price. May come back empty for sites it can't parse — callers
+  // should treat that as "couldn't find one," not an error to surface loudly.
+  function lookupPartPrice(url, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    fetch(team.webAppUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'lookupPartPrice',
+        team: state.team,
+        view: VIEW,
+        passcode: state.passcode,
+        fields: { url: url },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb(json.price, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
   // Student view has no gate UI — try the cached (often empty) passcode
   // silently first, matching how student reads were always open before.
   // Only fall back to a prompt if that mint is actually rejected (a
@@ -1391,6 +1417,7 @@
     buildCard: buildCard, // the editable card (Edit + Add-to-calendar) used everywhere else — reuse it, don't rebuild it
     editItem: openEditModal, // the shared edit modal — kanban/gantt/calendar/todo call this on click since they don't render full cards
     uploadPhoto: uploadPhoto,
+    lookupPartPrice: lookupPartPrice,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every
