@@ -778,11 +778,11 @@ function uploadsFolder_(teamKey) {
 // ===== Part price lookup (Budget tab "paste a link" auto-fill) =============
 // Best-effort only — this fetches the vendor's page server-side (a browser
 // can't; the vendor's own CORS policy blocks a cross-origin fetch from our
-// frontend) and looks for a price the same three ways search engines do:
+// frontend) and looks for a title + price the same way search engines do:
 // schema.org JSON-LD structured data first (most reliable when present),
-// then Open Graph/itemprop price meta tags, then a last-resort "first
-// dollar amount on the page" regex. Vendor name itself is derived from the
-// URL's hostname entirely client-side (app.js) — no fetch needed for that.
+// then Open Graph/itemprop meta tags, then last-resort regexes. Vendor name,
+// FTC-team discount rate, and tax are all handled client-side (budget.js) —
+// this only ever returns what's actually printed on the page.
 
 function lookupPartPrice_(teamKey, view, passcode, fields) {
   var team = TEAMS[teamKey];
@@ -799,59 +799,87 @@ function lookupPartPrice_(teamKey, view, passcode, fields) {
   if (resp.getResponseCode() >= 400) {
     return { ok: false, error: 'Could not load that page (' + resp.getResponseCode() + ')' };
   }
-  var html = resp.getContentText().slice(0, 400000); // price info is always near the top/in <head> — no need to scan a whole huge page
-  var price = extractPrice_(html);
-  return price == null ? { ok: false, error: 'No price found on that page' } : { ok: true, price: price };
+  var html = resp.getContentText().slice(0, 400000); // title/price info is always near the top/in <head> — no need to scan a whole huge page
+  var info = extractProductInfo_(html);
+  return info.price == null
+      ? { ok: false, error: 'No price found on that page' }
+      : { ok: true, price: info.price, title: info.title || '' };
 }
 
-function extractPrice_(html) {
+function extractProductInfo_(html) {
+  var result = { title: null, price: null };
+
   var ldMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
-  for (var i = 0; i < ldMatches.length; i++) {
+  for (var i = 0; i < ldMatches.length && (result.price == null || result.title == null); i++) {
     var jsonText = ldMatches[i].replace(/^[\s\S]*?>/, '').replace(/<\/script>\s*$/i, '');
     try {
-      var price = findPriceInJson_(JSON.parse(jsonText));
-      if (price != null) return price;
+      var found = findProductInJson_(JSON.parse(jsonText));
+      if (found) {
+        if (result.price == null && found.price != null) result.price = found.price;
+        if (result.title == null && found.name) result.title = found.name;
+      }
     } catch (e) { /* not valid JSON on this page — try the next block, or fall through */ }
   }
 
-  var metaMatch = html.match(/<meta[^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["'][^>]+content=["']([\d.]+)["']/i) ||
-      html.match(/<meta[^>]+content=["']([\d.]+)["'][^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["']/i);
-  if (metaMatch) return parseFloat(metaMatch[1]);
+  if (result.price == null) {
+    var metaMatch = html.match(/<meta[^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["'][^>]+content=["']([\d.]+)["']/i) ||
+        html.match(/<meta[^>]+content=["']([\d.]+)["'][^>]+(?:property|itemprop)=["'](?:product:price:amount|og:price:amount|price)["']/i);
+    if (metaMatch) result.price = parseFloat(metaMatch[1]);
+  }
+  if (result.price == null) {
+    var dollarMatch = html.match(/\$\s?(\d{1,5}(?:\.\d{2})?)/);
+    if (dollarMatch) result.price = parseFloat(dollarMatch[1]);
+  }
 
-  var dollarMatch = html.match(/\$\s?(\d{1,5}(?:\.\d{2})?)/);
-  if (dollarMatch) return parseFloat(dollarMatch[1]);
+  if (result.title == null) {
+    var ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+    if (ogTitle) result.title = decodeHtmlEntities_(ogTitle[1]);
+  }
+  if (result.title == null) {
+    var titleTag = html.match(/<title>([^<]+)<\/title>/i);
+    if (titleTag) result.title = decodeHtmlEntities_(titleTag[1]).replace(/\s*[-|]\s*[^-|]+$/, '');
+  }
 
-  return null;
+  return result;
 }
 
-/** Walks a parsed JSON-LD object/array looking for a schema.org Offer's `price`. */
-function findPriceInJson_(node) {
+/** Walks a parsed JSON-LD object/array looking for a schema.org Product's name + its Offer's price. */
+function findProductInJson_(node) {
   if (!node || typeof node !== 'object') return null;
   if (Array.isArray(node)) {
     for (var i = 0; i < node.length; i++) {
-      var found = findPriceInJson_(node[i]);
-      if (found != null) return found;
+      var found = findProductInJson_(node[i]);
+      if (found) return found;
     }
     return null;
   }
-  if (node.price != null && !isNaN(parseFloat(node.price))) return parseFloat(node.price);
-  if (node.offers) {
-    var fromOffers = findPriceInJson_(node.offers);
-    if (fromOffers != null) return fromOffers;
+
+  var price = null;
+  if (node.price != null && !isNaN(parseFloat(node.price))) {
+    price = parseFloat(node.price);
+  } else if (node.offers) {
+    var offerResult = findProductInJson_(node.offers);
+    if (offerResult && offerResult.price != null) price = offerResult.price;
   }
+  if (price != null) return { name: node.name || null, price: price };
+
   if (node['@graph']) {
-    var fromGraph = findPriceInJson_(node['@graph']);
-    if (fromGraph != null) return fromGraph;
+    var fromGraph = findProductInJson_(node['@graph']);
+    if (fromGraph) return fromGraph;
   }
   var keys = Object.keys(node);
   for (var k = 0; k < keys.length; k++) {
     var val = node[keys[k]];
     if (val && typeof val === 'object') {
-      var fromChild = findPriceInJson_(val);
-      if (fromChild != null) return fromChild;
+      var fromChild = findProductInJson_(val);
+      if (fromChild) return fromChild;
     }
   }
   return null;
+}
+
+function decodeHtmlEntities_(s) {
+  return s.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===
