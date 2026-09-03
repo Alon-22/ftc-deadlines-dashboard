@@ -1072,11 +1072,16 @@ section.group.group-alert h2 {
   border-radius: 12px;
   padding: 20px;
   width: 100%;
-  max-width: 420px;
+  max-width: 620px;
+  min-width: 0; /* flex items (this is one, of .modal-overlay) default to min-width:auto, which lets an oversized descendant (e.g. a <select> with a long option) blow past max-width instead of wrapping/clipping */
   max-height: 90vh;
   overflow-y: auto;
   display: grid;
   gap: 10px;
+}
+
+.modal-dialog > * {
+  min-width: 0; /* same fix, one level down: grid items get the same default */
 }
 
 .modal-dialog h3 {
@@ -1087,11 +1092,17 @@ section.group.group-alert h2 {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .modal-dialog .row > * {
   flex: 1;
   min-width: 120px;
+  max-width: 100%;
+}
+
+.modal-dialog select {
+  text-overflow: ellipsis;
 }
 
 .modal-dialog textarea {

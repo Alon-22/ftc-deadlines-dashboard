@@ -822,7 +822,8 @@
         .forEach(function (g) {
           var opt = document.createElement('option');
           opt.value = g.id;
-          opt.textContent = 'Blocked by: ' + g.title;
+          var shortTitle = g.title.length > 40 ? g.title.slice(0, 40) + '…' : g.title;
+          opt.textContent = 'Blocked by: ' + shortTitle;
           if (g.id === item.blockedBy) opt.selected = true;
           blockedBySelect.appendChild(opt);
         });
