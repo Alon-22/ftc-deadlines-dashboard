@@ -1009,6 +1009,16 @@ section.group.group-alert h2 {
 .checklist-status-in-progress { background: var(--yellow-bg); color: var(--yellow); }
 .checklist-status-done { background: var(--green-bg); color: var(--green); }
 
+.checklist-reset-btn {
+  margin-top: 8px;
+}
+
+/* ===== Parts & Budget ===== */
+
+.checklist-status-wishlist { background: var(--gray-bg); color: var(--gray); }
+.checklist-status-ordered { background: var(--yellow-bg); color: var(--yellow); }
+.checklist-status-received { background: var(--green-bg); color: var(--green); }
+
 /* ===== Task dependency badge ===== */
 
 .badge.blocked-badge {

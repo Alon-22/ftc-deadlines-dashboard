@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FTC Deadlines — Mentor View</title>
-<link rel="stylesheet" href="style.css?v=480f1b9">
+<link rel="stylesheet" href="style.css?v=2b861d7">
 </head>
 <body>
 <header>
@@ -30,6 +30,9 @@
   <button class="tab-btn" data-tab="workload">Workload</button>
   <button class="tab-btn" data-tab="notebook">Notebook</button>
   <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+  <button class="tab-btn" data-tab="budget">Budget</button>
+  <button class="tab-btn" data-tab="competition-day">Competition Day</button>
+  <button class="tab-btn" data-tab="awards-prep">Awards Prep</button>
   <button class="tab-btn" data-tab="people">People</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
   <button class="tab-btn" data-tab="season">Season</button>
@@ -250,6 +253,51 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="budget">
+    <section class="group">
+      <h2>Parts & Budget</h2>
+      <div id="budget-summary"></div>
+      <details>
+        <summary><strong>+ Add a part</strong></summary>
+        <form class="add-form" id="add-part-form">
+          <div class="row">
+            <input type="text" name="item" placeholder="Part name" required>
+            <input type="text" name="vendor" placeholder="Vendor (optional)">
+          </div>
+          <div class="row">
+            <input type="number" name="cost" step="0.01" placeholder="Cost each">
+            <input type="number" name="qty" min="1" placeholder="Qty" value="1">
+            <select name="status">
+              <option>Wishlist</option>
+              <option>Ordered</option>
+              <option>Received</option>
+            </select>
+          </div>
+          <button type="submit">Add part</button>
+        </form>
+      </details>
+    </section>
+    <section class="group">
+      <div id="budget-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="competition-day">
+    <section class="group">
+      <h2>Competition Day Checklist</h2>
+      <p class="card-meta">Reusable across every event — reset it back to blank once you're packed up and home.</p>
+      <div id="competition-day-checklist" data-checklist-name="competitionDay" data-checklist-resettable="true"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="awards-prep">
+    <section class="group">
+      <h2>Awards / Judging Prep</h2>
+      <p class="card-meta">Reusable across every event — reset it back to blank once judging's done.</p>
+      <div id="awards-prep-checklist" data-checklist-name="awardsPrep" data-checklist-resettable="true"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="people">
     <section class="group">
       <h2>People</h2>
@@ -351,20 +399,21 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="config/teams.js?v=480f1b9"></script>
-<script src="config/firebase.js?v=480f1b9"></script>
-<script src="app.js?v=480f1b9"></script>
-<script src="charts.js?v=480f1b9"></script>
-<script src="gantt.js?v=480f1b9"></script>
-<script src="checkin.js?v=480f1b9"></script>
-<script src="season.js?v=480f1b9"></script>
-<script src="metrics.js?v=480f1b9"></script>
-<script src="todo.js?v=480f1b9"></script>
-<script src="calendar.js?v=480f1b9"></script>
-<script src="kanban.js?v=480f1b9"></script>
-<script src="workload.js?v=480f1b9"></script>
-<script src="notebook.js?v=480f1b9"></script>
-<script src="checklist.js?v=480f1b9"></script>
-<script src="people.js?v=480f1b9"></script>
+<script src="config/teams.js?v=2b861d7"></script>
+<script src="config/firebase.js?v=2b861d7"></script>
+<script src="app.js?v=2b861d7"></script>
+<script src="charts.js?v=2b861d7"></script>
+<script src="gantt.js?v=2b861d7"></script>
+<script src="checkin.js?v=2b861d7"></script>
+<script src="season.js?v=2b861d7"></script>
+<script src="metrics.js?v=2b861d7"></script>
+<script src="todo.js?v=2b861d7"></script>
+<script src="calendar.js?v=2b861d7"></script>
+<script src="kanban.js?v=2b861d7"></script>
+<script src="workload.js?v=2b861d7"></script>
+<script src="notebook.js?v=2b861d7"></script>
+<script src="checklist.js?v=2b861d7"></script>
+<script src="budget.js?v=2b861d7"></script>
+<script src="people.js?v=2b861d7"></script>
 </body>
 </html>

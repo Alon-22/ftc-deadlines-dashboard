@@ -26,6 +26,9 @@
 
   containers.forEach(function (container) {
     container.appendChild(buildAddForm(container.dataset.checklistName));
+    if (container.dataset.checklistResettable === 'true') {
+      container.appendChild(buildResetButton(container.dataset.checklistName));
+    }
     var list = document.createElement('div');
     list.className = 'checklist-list';
     container.appendChild(list);
@@ -164,6 +167,18 @@
 
     panel.appendChild(actions);
     return panel;
+  }
+
+  function buildResetButton(checklistName) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary checklist-reset-btn';
+    btn.textContent = 'Reset all to Not started';
+    btn.addEventListener('click', function () {
+      if (!window.confirm('Reset every item in this checklist back to "Not started"? Use this between competitions.')) return;
+      DB.post('resetChecklistItems', null, { checklistName: checklistName }, function () {});
+    });
+    return btn;
   }
 
   function buildAddForm(checklistName) {

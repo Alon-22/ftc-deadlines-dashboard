@@ -309,6 +309,11 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    unsubscribers.push(teamRef.collection('parts').onSnapshot(function (snap) {
+      ensureData_().parts = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
     if (VIEW === 'mentor') {
       unsubscribers.push(teamRef.collection('people').onSnapshot(function (snap) {
         var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
@@ -346,7 +351,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [] };
     return state.data;
   }
 
@@ -1140,6 +1145,20 @@
       return teamRef_().collection('checklistItems').doc(id).delete();
     },
 
+    // Competition-day/awards-prep checklists get reused across every
+    // event, unlike the one-and-done Portfolio — this is how they go back
+    // to blank between competitions instead of needing to be rebuilt.
+    resetChecklistItems: function (id, fields) {
+      var ids = (state.data.checklistItems || [])
+        .filter(function (i) { return i.checklistName === fields.checklistName; })
+        .map(function (i) { return i.id; });
+      var batch = db.batch();
+      ids.forEach(function (itemId) {
+        batch.update(teamRef_().collection('checklistItems').doc(itemId), { status: 'Not started' });
+      });
+      return batch.commit();
+    },
+
     // people is mentor-write-only per Security Rules — feeds the daily
     // digest email (Code.gs matches a goal's owner name against this list).
     addPerson: function (id, fields) {
@@ -1151,6 +1170,33 @@
 
     deletePerson: function (id) {
       return teamRef_().collection('people').doc(id).delete();
+    },
+
+    addPart: function (id, fields) {
+      return teamRef_().collection('parts').add({
+        item: fields.item,
+        vendor: fields.vendor || '',
+        link: fields.link || '',
+        cost: Number(fields.cost) || 0,
+        qty: Number(fields.qty) || 1,
+        status: fields.status || 'Wishlist',
+        createdAt: new Date().toISOString(),
+      });
+    },
+
+    updatePart: function (id, fields) {
+      var patch = {};
+      if ('item' in fields) patch.item = fields.item;
+      if ('vendor' in fields) patch.vendor = fields.vendor;
+      if ('link' in fields) patch.link = fields.link;
+      if ('cost' in fields) patch.cost = Number(fields.cost) || 0;
+      if ('qty' in fields) patch.qty = Number(fields.qty) || 1;
+      if ('status' in fields) patch.status = fields.status;
+      return teamRef_().collection('parts').doc(id).update(patch);
+    },
+
+    deletePart: function (id) {
+      return teamRef_().collection('parts').doc(id).delete();
     },
   };
 

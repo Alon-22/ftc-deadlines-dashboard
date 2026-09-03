@@ -75,6 +75,12 @@ service cloud.firestore {
       allow write: if signedInAs(teamId) && isMentor();
     }
 
+    // Phase 4: the parts & budget tracker — both roles, same open
+    // collaboration as deadlines/subtasks above.
+    match /teams/{teamId}/parts/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+
     // Season Log: everyone can read the season history, but only a mentor
     // can write it — this is where "archive completed goals" (a batch
     // move of Done goals out of /goals and into /seasonLog, replacing the
