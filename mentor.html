@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FTC Deadlines — Mentor View</title>
-<link rel="stylesheet" href="style.css?v=42049a9">
+<link rel="stylesheet" href="style.css?v=24ebef6">
 </head>
 <body>
 <header>
@@ -30,6 +30,7 @@
   <button class="tab-btn" data-tab="workload">Workload</button>
   <button class="tab-btn" data-tab="notebook">Notebook</button>
   <button class="tab-btn" data-tab="portfolio">Portfolio</button>
+  <button class="tab-btn" data-tab="people">People</button>
   <button class="tab-btn" data-tab="checkin">Check-In</button>
   <button class="tab-btn" data-tab="season">Season</button>
   <button class="tab-btn" data-tab="metrics">Metrics</button>
@@ -249,6 +250,23 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="people">
+    <section class="group">
+      <h2>People</h2>
+      <p class="card-meta">Name + email for anyone who should get the daily digest email of their due, overdue, and stuck goals.</p>
+      <form class="add-form" id="add-person-form">
+        <div class="row">
+          <input type="text" name="name" placeholder="Name (must match how it's typed on goals)" required>
+          <input type="email" name="email" placeholder="Email address" required>
+        </div>
+        <button type="submit">Add person</button>
+      </form>
+    </section>
+    <section class="group">
+      <div id="people-list"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="checkin">
     <section class="group">
       <h2>Due this week</h2>
@@ -333,19 +351,20 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
-<script src="config/teams.js?v=42049a9"></script>
-<script src="config/firebase.js?v=42049a9"></script>
-<script src="app.js?v=42049a9"></script>
-<script src="charts.js?v=42049a9"></script>
-<script src="gantt.js?v=42049a9"></script>
-<script src="checkin.js?v=42049a9"></script>
-<script src="season.js?v=42049a9"></script>
-<script src="metrics.js?v=42049a9"></script>
-<script src="todo.js?v=42049a9"></script>
-<script src="calendar.js?v=42049a9"></script>
-<script src="kanban.js?v=42049a9"></script>
-<script src="workload.js?v=42049a9"></script>
-<script src="notebook.js?v=42049a9"></script>
-<script src="checklist.js?v=42049a9"></script>
+<script src="config/teams.js?v=24ebef6"></script>
+<script src="config/firebase.js?v=24ebef6"></script>
+<script src="app.js?v=24ebef6"></script>
+<script src="charts.js?v=24ebef6"></script>
+<script src="gantt.js?v=24ebef6"></script>
+<script src="checkin.js?v=24ebef6"></script>
+<script src="season.js?v=24ebef6"></script>
+<script src="metrics.js?v=24ebef6"></script>
+<script src="todo.js?v=24ebef6"></script>
+<script src="calendar.js?v=24ebef6"></script>
+<script src="kanban.js?v=24ebef6"></script>
+<script src="workload.js?v=24ebef6"></script>
+<script src="notebook.js?v=24ebef6"></script>
+<script src="checklist.js?v=24ebef6"></script>
+<script src="people.js?v=24ebef6"></script>
 </body>
 </html>

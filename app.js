@@ -309,6 +309,15 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    if (VIEW === 'mentor') {
+      unsubscribers.push(teamRef.collection('people').onSnapshot(function (snap) {
+        var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+        people.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+        ensureData_().people = people;
+        recomputeAndRender();
+      }, onSnapshotError_));
+    }
+
     unsubscribers.push(teamRef.collection('views').onSnapshot(function (snap) {
       ensureData_().views = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
       recomputeAndRender();
@@ -337,7 +346,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [] };
     return state.data;
   }
 
@@ -366,6 +375,8 @@
       status: g.status || '',
       notes: g.notes || '',
       link: g.link || '',
+      blockedBy: g.blockedBy || '',
+      repeats: g.repeats || 'none',
       priorityOrder: g.priorityOrder == null ? null : g.priorityOrder,
       daysLeft: daysLeft_(targetDate),
       workHoursLeft: g.workHoursLeft == null ? null : g.workHoursLeft,
@@ -598,6 +609,15 @@
       titleWrap.appendChild(badge);
     }
 
+    var blocker = blockingGoal_(item);
+    if (blocker) {
+      var blockedBadge = document.createElement('span');
+      blockedBadge.className = 'badge blocked-badge';
+      blockedBadge.textContent = '🔒 Blocked by: ' + blocker.title;
+      titleWrap.appendChild(document.createElement('br'));
+      titleWrap.appendChild(blockedBadge);
+    }
+
     top.appendChild(titleWrap);
 
     var countdownEl = document.createElement('div');
@@ -729,6 +749,41 @@
       wrap.appendChild(linkInput);
     }
 
+    var blockedBySelect, repeatsSelect;
+    if (item.type === 'goal') {
+      var depRow = document.createElement('div');
+      depRow.className = 'row';
+
+      blockedBySelect = document.createElement('select');
+      var noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = 'Not blocked by anything';
+      blockedBySelect.appendChild(noneOpt);
+      (state.data.items || []).filter(function (i) { return i.type === 'goal' && i.id !== item.id; })
+        .sort(function (a, b) { return a.title.localeCompare(b.title); })
+        .forEach(function (g) {
+          var opt = document.createElement('option');
+          opt.value = g.id;
+          opt.textContent = 'Blocked by: ' + g.title;
+          if (g.id === item.blockedBy) opt.selected = true;
+          blockedBySelect.appendChild(opt);
+        });
+      depRow.appendChild(blockedBySelect);
+
+      repeatsSelect = document.createElement('select');
+      [['none', 'Does not repeat'], ['weekly', 'Repeats weekly'], ['biweekly', 'Repeats every 2 weeks'], ['monthly', 'Repeats monthly']]
+        .forEach(function (pair) {
+          var opt = document.createElement('option');
+          opt.value = pair[0];
+          opt.textContent = pair[1];
+          if (pair[0] === (item.repeats || 'none')) opt.selected = true;
+          repeatsSelect.appendChild(opt);
+        });
+      depRow.appendChild(repeatsSelect);
+
+      wrap.appendChild(depRow);
+    }
+
     var row = document.createElement('div');
     row.className = 'card-actions';
     var saveBtn = document.createElement('button');
@@ -744,6 +799,8 @@
       var fields = { lastUpdate: textarea.value };
       if (statusSelect) fields.status = statusSelect.value;
       if (linkInput) fields.link = linkInput.value.trim();
+      if (blockedBySelect) fields.blockedBy = blockedBySelect.value;
+      if (repeatsSelect) fields.repeats = repeatsSelect.value;
       var action = item.type === 'deadline' ? 'updateDeadline' : 'updateGoal';
       if (item.type === 'deadline') fields = { notes: textarea.value };
       post(action, item.id, fields, function (ok) {
@@ -753,6 +810,15 @@
 
     card.appendChild(wrap);
     card.appendChild(row);
+  }
+
+  // Returns the blocking goal only while it's still open — once it's Done
+  // the dependency is satisfied, so the badge disappears on its own without
+  // needing to clear blockedBy anywhere.
+  function blockingGoal_(item) {
+    if (!item.blockedBy) return null;
+    var blocker = (state.data.items || []).filter(function (i) { return i.id === item.blockedBy && i.type === 'goal'; })[0];
+    return (blocker && blocker.status !== 'Done') ? blocker : null;
   }
 
   // ===== Comments (threaded under a goal) =====================================
@@ -854,6 +920,36 @@
     return db.collection('teams').doc(state.team);
   }
 
+  // A recurring goal (repeats != 'none') spawns a fresh, Not-started copy of
+  // itself the moment it's marked Done — same title/owner/subteam, target
+  // date advanced by the interval, notes and blocker cleared since those
+  // belonged to the finished cycle, not the next one.
+  function spawnNextRecurrence_(goal) {
+    var base = goal.targetDate ? new Date(goal.targetDate) : new Date();
+    var next = addInterval_(base, goal.repeats);
+    return teamRef_().collection('goals').add({
+      subtype: goal.subtype,
+      title: goal.title,
+      owner: goal.owner || '',
+      group: goal.group || '',
+      status: 'Not started',
+      notes: '',
+      link: goal.link || '',
+      blockedBy: '',
+      repeats: goal.repeats,
+      targetDate: next.toISOString(),
+      isMentorOwned: !!goal.isMentorOwned,
+    });
+  }
+
+  function addInterval_(date, repeats) {
+    var d = new Date(date);
+    if (repeats === 'weekly') d.setDate(d.getDate() + 7);
+    else if (repeats === 'biweekly') d.setDate(d.getDate() + 14);
+    else if (repeats === 'monthly') d.setMonth(d.getMonth() + 1);
+    return d;
+  }
+
   function ownerNames_(ownerStr) {
     return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
@@ -872,9 +968,18 @@
       if ('status' in fields) patch.status = fields.status;
       if ('lastUpdate' in fields) patch.notes = fields.lastUpdate;
       if ('link' in fields) patch.link = fields.link;
+      if ('blockedBy' in fields) patch.blockedBy = fields.blockedBy;
+      if ('repeats' in fields) patch.repeats = fields.repeats;
       if ('startDate' in fields) patch.startDate = new Date(fields.startDate).toISOString();
       if ('targetDate' in fields) patch.targetDate = new Date(fields.targetDate).toISOString();
-      return teamRef_().collection('goals').doc(id).update(patch);
+
+      var existing = (state.data.items || []).filter(function (i) { return i.id === id && i.type === 'goal'; })[0];
+      var justCompletedRecurring = existing && existing.status !== 'Done' && patch.status === 'Done' &&
+        existing.repeats && existing.repeats !== 'none';
+
+      return teamRef_().collection('goals').doc(id).update(patch).then(function () {
+        if (justCompletedRecurring) return spawnNextRecurrence_(existing);
+      });
     },
 
     updateDeadline: function (id, fields) {
@@ -1033,6 +1138,19 @@
 
     deleteChecklistItem: function (id) {
       return teamRef_().collection('checklistItems').doc(id).delete();
+    },
+
+    // people is mentor-write-only per Security Rules — feeds the daily
+    // digest email (Code.gs matches a goal's owner name against this list).
+    addPerson: function (id, fields) {
+      return teamRef_().collection('people').add({
+        name: fields.name,
+        email: fields.email,
+      });
+    },
+
+    deletePerson: function (id) {
+      return teamRef_().collection('people').doc(id).delete();
     },
   };
 

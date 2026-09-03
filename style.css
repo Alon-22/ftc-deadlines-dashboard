@@ -1008,3 +1008,19 @@ section.group.group-alert h2 {
 .checklist-status-not-started { background: var(--gray-bg); color: var(--gray); }
 .checklist-status-in-progress { background: var(--yellow-bg); color: var(--yellow); }
 .checklist-status-done { background: var(--green-bg); color: var(--green); }
+
+/* ===== Task dependency badge ===== */
+
+.badge.blocked-badge {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+/* ===== People directory ===== */
+
+.people-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}

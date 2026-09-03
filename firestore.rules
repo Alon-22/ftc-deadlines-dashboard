@@ -66,6 +66,15 @@ service cloud.firestore {
       allow read, write: if signedInAs(teamId) && isMentor();
     }
 
+    // Phase 3: the People directory (name -> email, feeds Code.gs's daily
+    // digest email) holds contact info, so only a mentor curates it —
+    // both roles can still read it since it's just names already visible
+    // on goals.
+    match /teams/{teamId}/people/{id} {
+      allow read: if signedInAs(teamId);
+      allow write: if signedInAs(teamId) && isMentor();
+    }
+
     // Season Log: everyone can read the season history, but only a mentor
     // can write it — this is where "archive completed goals" (a batch
     // move of Done goals out of /goals and into /seasonLog, replacing the

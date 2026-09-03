@@ -17,6 +17,10 @@
  *   3. Run setupAllTeams() once from the Apps Script editor (Run menu).
  *      It creates the "Competitions & Deadlines" and "Mentor Notes" tabs
  *      and backfills a hidden Row ID column on every goal tab, if missing.
+ *   4. Optional: run setupDailyDigest() once to install a daily 7am trigger
+ *      that emails each person in the Firestore People directory (added
+ *      from the mentor view's People tab) their overdue/due-this-week/
+ *      stuck goals. Safe to skip — nothing else depends on it.
  */
 
 // ===== Team registry =====================================================
@@ -865,6 +869,55 @@ function firestoreFields_(obj) {
 }
 
 /**
+ * Admin GET of every document in a collection (paginated internally —
+ * these team-scoped collections are small, but this doesn't assume it).
+ * Returns [{id, ...plainFields}], used by the daily digest to read goals
+ * and people without a real user's Security-Rules-gated session.
+ */
+function firestoreListDocs_(path) {
+  var docs = [];
+  var pageToken = null;
+  do {
+    var url = firestoreBaseUrl_() + '/' + path + '?pageSize=300' + (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    var resp = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + adminAccessToken_() },
+      muteHttpExceptions: true,
+    });
+    if (resp.getResponseCode() >= 300) throw new Error('Firestore list failed (' + resp.getResponseCode() + '): ' + resp.getContentText());
+    var body = JSON.parse(resp.getContentText());
+    (body.documents || []).forEach(function (doc) { docs.push(firestoreParseDoc_(doc)); });
+    pageToken = body.nextPageToken || null;
+  } while (pageToken);
+  return docs;
+}
+
+/** Converts a Firestore REST API typed Value wrapper back into a plain JS value. */
+function firestoreParseValue_(v) {
+  if (!v || v.nullValue !== undefined) return null;
+  if (v.booleanValue !== undefined) return v.booleanValue;
+  if (v.integerValue !== undefined) return Number(v.integerValue);
+  if (v.doubleValue !== undefined) return v.doubleValue;
+  if (v.timestampValue !== undefined) return v.timestampValue;
+  if (v.stringValue !== undefined) return v.stringValue;
+  if (v.arrayValue !== undefined) return (v.arrayValue.values || []).map(firestoreParseValue_);
+  if (v.mapValue !== undefined) return firestoreParseFields_(v.mapValue.fields || {});
+  return null;
+}
+
+/** Converts a Firestore REST API `fields` map back into a plain JS object. */
+function firestoreParseFields_(fields) {
+  var obj = {};
+  Object.keys(fields).forEach(function (k) { obj[k] = firestoreParseValue_(fields[k]); });
+  return obj;
+}
+
+/** Converts one Firestore REST API document into {id, ...plainFields}. */
+function firestoreParseDoc_(doc) {
+  var id = doc.name.split('/').pop();
+  return Object.assign({ id: id }, firestoreParseFields_(doc.fields || {}));
+}
+
+/**
  * Run manually from the editor, once, after TEAMS is populated and
  * FIREBASE_SERVICE_ACCOUNT_JSON is set. Creates/updates the teams/{teamKey}
  * doc for every team — the one Firestore write app users can never make
@@ -1062,6 +1115,80 @@ function migrateTeamToFirestore_(teamKey) {
   }
 
   return counts;
+}
+
+// ===== Daily digest email ===================================================
+// One email per person per team, only when they actually have something to
+// act on (overdue, due this week, or self-flagged Red/"stuck") — reads
+// Firestore as admin (Security Rules never let a real session list every
+// team's goals across the roster) and matches by exact name against the
+// People directory, same matching the owner-name text already used
+// everywhere else in the app.
+
+/**
+ * Run once from the editor (Run menu) to install the daily trigger. Safe
+ * to re-run — clears any previous sendDailyDigest_ trigger first so this
+ * never ends up with two.
+ */
+function setupDailyDigest() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendDailyDigest_') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendDailyDigest_').timeBased().everyDays(1).atHour(7).create();
+}
+
+function sendDailyDigest_() {
+  Object.keys(TEAMS).forEach(function (teamKey) {
+    var people = firestoreListDocs_('teams/' + teamKey + '/people');
+    if (!people.length) return; // no one asked to be emailed
+
+    var goals = firestoreListDocs_('teams/' + teamKey + '/goals')
+      .filter(function (g) { return (g.status || '').toLowerCase() !== 'done'; });
+    goals.forEach(function (g) { g._daysLeft = digestDaysLeft_(g.targetDate); });
+
+    var byName = {};
+    goals.forEach(function (g) {
+      (g.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (name) {
+        var key = name.toLowerCase();
+        if (!byName[key]) byName[key] = [];
+        byName[key].push(g);
+      });
+    });
+
+    people.forEach(function (person) {
+      if (!person.email || !person.name) return;
+      var mine = byName[person.name.trim().toLowerCase()] || [];
+      if (!mine.length) return;
+
+      var overdue = mine.filter(function (g) { return g._daysLeft != null && g._daysLeft < 0; });
+      var dueThisWeek = mine.filter(function (g) { return g._daysLeft != null && g._daysLeft >= 0 && g._daysLeft <= 7; });
+      var stuck = mine.filter(function (g) { return (g.status || '') === 'Red'; });
+      if (!overdue.length && !dueThisWeek.length && !stuck.length) return;
+
+      var body = digestBody_(overdue, dueThisWeek, stuck);
+      MailApp.sendEmail(person.email, 'FTC Dashboard: your goals for today', body);
+    });
+  });
+}
+
+function digestDaysLeft_(targetDate) {
+  if (!targetDate) return null;
+  return Math.ceil((new Date(targetDate).getTime() - Date.now()) / 86400000);
+}
+
+function digestBody_(overdue, dueThisWeek, stuck) {
+  var lines = [];
+  function section(title, list) {
+    if (!list.length) return;
+    lines.push(title + ':');
+    list.forEach(function (g) { lines.push('  - ' + g.title); });
+    lines.push('');
+  }
+  section('Overdue', overdue);
+  section('Due this week', dueThisWeek);
+  section('Flagged stuck/slipping', stuck);
+  lines.push('Open the dashboard to update these.');
+  return lines.join('\n');
 }
 
 // ===== One-time per-team sheet setup =======================================
