@@ -226,11 +226,12 @@
     });
   }
 
-  // Best-effort price lookup for the Budget tab's "paste a link" auto-fill
-  // — Code.gs fetches the vendor page server-side (a browser can't; the
-  // vendor's CORS policy blocks a cross-origin fetch from here) and scrapes
-  // for a price. May come back empty for sites it can't parse — callers
-  // should treat that as "couldn't find one," not an error to surface loudly.
+  // Best-effort title + price lookup for the Budget tab's "paste a link"
+  // auto-fill — Code.gs fetches the vendor page server-side (a browser
+  // can't; the vendor's CORS policy blocks a cross-origin fetch from here)
+  // and scrapes for both. May come back empty for sites it can't parse —
+  // callers should treat that as "couldn't find one," not an error to
+  // surface loudly. cb(null, errorMessage) on failure, cb({price, title}, null) on success.
   function lookupPartPrice(url, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
@@ -247,9 +248,31 @@
       .then(function (r) { return r.json(); })
       .then(function (json) {
         if (!json.ok) return cb(null, json.error);
-        cb(json.price, null);
+        cb({ price: json.price, title: json.title || '' }, null);
       })
       .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // Emails a Request-for-Purchase cart to a set of already-resolved
+  // addresses — recipient resolution happens client-side (budget.js
+  // matches the People directory against this team's mentor roster);
+  // Code.gs only ever does the one thing only it can, which is send mail.
+  function sendPurchaseRequestEmail(to, subject, body, cb) {
+    var team = teamConfig();
+    if (!team) return cb(false, 'No team selected');
+    fetch(team.webAppUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'sendPurchaseRequestEmail',
+        team: state.team,
+        view: VIEW,
+        passcode: state.passcode,
+        fields: { to: to, subject: subject, body: body },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) { cb(json.ok, json.error); })
+      .catch(function (err) { cb(false, String(err)); });
   }
 
   // Student view has no gate UI — try the cached (often empty) passcode
@@ -294,6 +317,8 @@
 
     teamRef.get().then(function (doc) {
       teamMentors = (doc.exists && doc.data().mentors) || [];
+      ensureData_().mentors = teamMentors;
+      recomputeAndRender();
     });
 
     // Firestore can only allow a collection-wide list query when the rule's
@@ -377,7 +402,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [] };
     return state.data;
   }
 
@@ -1418,6 +1443,7 @@
     editItem: openEditModal, // the shared edit modal — kanban/gantt/calendar/todo call this on click since they don't render full cards
     uploadPhoto: uploadPhoto,
     lookupPartPrice: lookupPartPrice,
+    sendPurchaseRequestEmail: sendPurchaseRequestEmail,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every

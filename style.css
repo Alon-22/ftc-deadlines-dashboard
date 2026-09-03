@@ -1134,3 +1134,46 @@ section.group.group-alert h2 {
 .rfp-cart .card-actions {
   padding: 0 14px 12px;
 }
+
+.rfp-cart-items a {
+  font-size: 0.8rem;
+}
+
+/* ===== "Paste a link" lookup card ===== */
+
+.lookup-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.lookup-card p {
+  margin: 0;
+}
+
+.lookup-card-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lookup-card .row {
+  align-items: center;
+  gap: 6px;
+}
+
+.lookup-card .row input {
+  max-width: 90px;
+  flex: none;
+  min-width: 0;
+}
+
+.lookup-card-total {
+  font-weight: 600;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}

@@ -121,6 +121,8 @@ function handleRequest_(e, isPost) {
       result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else if (params.action === 'lookupPartPrice') {
       result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
+    } else if (params.action === 'sendPurchaseRequestEmail') {
+      result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else {
       result = isPost ? handleWrite_(params) : handleRead_(params);
     }
@@ -880,6 +882,26 @@ function findProductInJson_(node) {
 
 function decodeHtmlEntities_(s) {
   return s.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
+// ===== Purchase request email (Budget tab "Submit to coaches") =============
+// The client already resolves who "the coaches" are — it cross-references
+// the People directory against this team's mentor roster (the "mentors"
+// field on the team doc) and builds the subject/body — this endpoint only
+// ever does the one thing only Code.gs can do, which is actually send mail.
+
+function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var to = (fields.to || []).filter(function (addr) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr); }).slice(0, 10);
+  if (!to.length) return { ok: false, error: 'No valid recipient email addresses' };
+  if (!fields.subject || !fields.body) return { ok: false, error: 'Missing subject or body' };
+
+  MailApp.sendEmail({ to: to.join(','), subject: fields.subject, body: fields.body });
+  return { ok: true };
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===

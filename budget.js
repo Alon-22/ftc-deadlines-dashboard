@@ -33,10 +33,13 @@
   }
 
   // ===== "Paste a link" auto-fill ==============================================
-  // Vendor comes from the URL's hostname — instant, no network call. Cost is
-  // a best-effort server-side page scrape (Code.gs's lookupPartPrice_, since
-  // a browser can't fetch a cross-origin vendor page itself); it can come
-  // back empty for sites it can't parse, which is expected, not an error.
+  // Vendor comes from the URL's hostname — instant, no network call. Title
+  // and list price are a best-effort server-side page scrape (Code.gs's
+  // lookupPartPrice_, since a browser can't fetch a cross-origin vendor
+  // page itself); it can come back empty for sites it can't parse, which
+  // is expected, not an error. A few vendors give FTC teams a standing
+  // discount off that list price — not something the page itself reports,
+  // so it's a small manually-kept table here, applied client-side.
 
   var KNOWN_VENDORS = {
     'andymark.com': 'AndyMark',
@@ -51,24 +54,45 @@
     'vexrobotics.com': 'VEX Robotics',
   };
 
-  function vendorFromUrl_(url) {
+  var VENDOR_DISCOUNTS = {
+    'gobilda.com': 0.25, // goBILDA's standing FTC/FRC team discount
+  };
+
+  function hostnameOf_(url) {
     try {
-      var host = new URL(url).hostname.replace(/^www\./, '').toLowerCase();
-      if (KNOWN_VENDORS[host]) return KNOWN_VENDORS[host];
-      var label = host.split('.')[0];
-      return label.charAt(0).toUpperCase() + label.slice(1);
+      return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
     } catch (e) {
       return '';
     }
   }
 
-  // Wires one link input up to auto-fill a vendor input (instant) and a
-  // cost input (a lookup call) the moment a link is entered — never
-  // overwrites a value already sitting in either field, so typing your own
-  // vendor/cost first and pasting a link after doesn't clobber it.
-  function wireLinkAutofill(linkInput, vendorInput, costInput, statusEl) {
+  function vendorFromUrl_(url) {
+    var host = hostnameOf_(url);
+    if (!host) return '';
+    if (KNOWN_VENDORS[host]) return KNOWN_VENDORS[host];
+    var label = host.split('.')[0];
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  }
+
+  var TAX_RATE_KEY = 'ftc-budget-tax-rate';
+  function savedTaxRate_() {
+    try { return localStorage.getItem(TAX_RATE_KEY) || ''; } catch (e) { return ''; }
+  }
+  function saveTaxRate_(rate) {
+    try { localStorage.setItem(TAX_RATE_KEY, rate); } catch (e) { /* private browsing, etc — fine to skip */ }
+  }
+
+  // Wires one link input up to auto-fill a vendor input (instant) and, once
+  // the lookup returns, cost + optionally item name — plus a small
+  // breakdown card (list price, FTC discount if this vendor gives one, a
+  // remembered tax rate, live total as qty/tax change) so the mentor sees
+  // the real math before it's saved. Never overwrites a value already
+  // sitting in a field — pasting a link after you've typed your own
+  // vendor/cost/name leaves those alone.
+  function wireLinkAutofill(linkInput, itemInput, vendorInput, costInput, qtyInput, cardEl) {
     linkInput.addEventListener('change', function () {
       var url = linkInput.value.trim();
+      if (cardEl) cardEl.innerHTML = '';
       if (!url) return;
 
       if (!vendorInput.value.trim()) {
@@ -79,18 +103,85 @@
         }
       }
 
-      if (costInput.value) return; // already has a cost — don't touch it
-      if (statusEl) statusEl.textContent = '🔍 Looking up price…';
-      DB.lookupPartPrice(url, function (price, err) {
-        if (price != null) {
-          costInput.value = price;
-          costInput.dispatchEvent(new Event('change', { bubbles: true }));
-          if (statusEl) statusEl.textContent = 'Found a price — check it before saving.';
-        } else if (statusEl) {
-          statusEl.textContent = err ? '' : "Couldn't find a price on that page — enter it manually.";
+      if (cardEl) cardEl.textContent = '🔍 Looking up price…';
+      DB.lookupPartPrice(url, function (info, err) {
+        if (cardEl) cardEl.innerHTML = '';
+        if (!info || info.price == null) {
+          if (cardEl) cardEl.textContent = err ? '' : "Couldn't find a price on that page — enter it manually.";
+          return;
         }
+
+        if (itemInput && !itemInput.value.trim() && info.title) {
+          itemInput.value = info.title;
+          itemInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        var discountRate = VENDOR_DISCOUNTS[hostnameOf_(url)] || 0;
+        // Round once, right here, and use that same rounded number for the
+        // card's own math below — otherwise the card's total (computed from
+        // the unrounded value) won't look like it adds up to the rounded
+        // line items it's showing right next to it.
+        var unitCost = Math.round(info.price * (1 - discountRate) * 100) / 100;
+        if (!costInput.value) {
+          costInput.value = unitCost.toFixed(2);
+          costInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        if (cardEl) renderLookupCard_(cardEl, info, discountRate, unitCost, qtyInput);
       });
     });
+  }
+
+  function renderLookupCard_(cardEl, info, discountRate, unitCost, qtyInput) {
+    cardEl.className = 'lookup-card';
+
+    if (info.title) {
+      var titleP = document.createElement('p');
+      titleP.className = 'lookup-card-title';
+      titleP.textContent = info.title;
+      cardEl.appendChild(titleP);
+    }
+
+    var listP = document.createElement('p');
+    listP.textContent = 'List price: ' + money(info.price) + ' each';
+    cardEl.appendChild(listP);
+
+    if (discountRate > 0) {
+      var discountP = document.createElement('p');
+      discountP.textContent = 'FTC team discount (' + Math.round(discountRate * 100) + '%): ' + money(unitCost) + ' each';
+      cardEl.appendChild(discountP);
+    }
+
+    var taxRow = document.createElement('div');
+    taxRow.className = 'row';
+    var taxLabel = document.createElement('span');
+    taxLabel.textContent = 'Tax rate:';
+    var taxInput = document.createElement('input');
+    taxInput.type = 'number';
+    taxInput.step = '0.01';
+    taxInput.min = '0';
+    taxInput.placeholder = '%';
+    taxInput.value = savedTaxRate_();
+    taxRow.appendChild(taxLabel);
+    taxRow.appendChild(taxInput);
+    cardEl.appendChild(taxRow);
+
+    var totalP = document.createElement('p');
+    totalP.className = 'lookup-card-total';
+    cardEl.appendChild(totalP);
+
+    function recompute() {
+      var qty = (qtyInput && Number(qtyInput.value)) || 1;
+      var taxRate = Number(taxInput.value) || 0;
+      var subtotal = unitCost * qty;
+      var tax = subtotal * (taxRate / 100);
+      totalP.textContent = qty + ' × ' + money(unitCost) + ' = ' + money(subtotal) +
+        '  +  tax: ' + money(tax) + '  =  ' + money(subtotal + tax) + ' total';
+    }
+
+    taxInput.addEventListener('input', function () { saveTaxRate_(taxInput.value); recompute(); });
+    if (qtyInput) qtyInput.addEventListener('input', recompute);
+    recompute();
   }
 
   function render() {
@@ -173,7 +264,15 @@
     itemList.className = 'rfp-cart-items';
     items.forEach(function (p) {
       var li = document.createElement('li');
-      li.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0);
+      li.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0) + ' ';
+      if (p.link) {
+        var linkA = document.createElement('a');
+        linkA.href = p.link;
+        linkA.target = '_blank';
+        linkA.rel = 'noopener';
+        linkA.textContent = '🔗 link';
+        li.appendChild(linkA);
+      }
       itemList.appendChild(li);
     });
     box.appendChild(itemList);
@@ -198,8 +297,56 @@
     });
     actions.appendChild(orderedBtn);
 
+    var submitBtn = document.createElement('button');
+    submitBtn.type = 'button';
+    submitBtn.className = 'secondary';
+    submitBtn.textContent = '📧 Submit to coaches';
+    submitBtn.addEventListener('click', function () { submitCartToCoaches_(vendor, items, submitBtn); });
+    actions.appendChild(submitBtn);
+
     box.appendChild(actions);
     return box;
+  }
+
+  // Recipients are resolved from data the app already has, not a new
+  // setting: "coaches" = People-directory entries whose name matches this
+  // team's mentor roster (the same roster that already decides who can see
+  // a mentor-owned goal). A mentor just needs to be in the People tab once.
+  function coachEmails_() {
+    var mentors = (DB.state.data.mentors || []).map(function (m) { return m.trim().toLowerCase(); });
+    var people = DB.state.data.people || [];
+    return people
+      .filter(function (p) { return mentors.indexOf((p.name || '').trim().toLowerCase()) !== -1; })
+      .map(function (p) { return p.email; })
+      .filter(Boolean);
+  }
+
+  function purchaseRequestEmailBody_(vendor, items, teamLabel) {
+    var lines = ['Purchase Request', 'Team: ' + teamLabel, 'Vendor: ' + vendor, 'Date: ' + new Date().toLocaleDateString(), ''];
+    items.forEach(function (p) {
+      var lineTotal = (p.cost || 0) * (p.qty || 1);
+      lines.push('- ' + p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0) + ' = ' + money(lineTotal) + (p.link ? ' (' + p.link + ')' : ''));
+    });
+    lines.push('', 'Total: ' + money(cartTotal(items)));
+    return lines.join('\n');
+  }
+
+  function submitCartToCoaches_(vendor, items, btn) {
+    var emails = coachEmails_();
+    if (!emails.length) {
+      DB.toast('No coach emails found — add mentor names + emails to the People tab first.');
+      return;
+    }
+    var teamLabel = (DB.teamConfig() || {}).label || DB.state.team || '';
+    var subject = 'Purchase Request: ' + vendor + ' — ' + teamLabel;
+    var body = purchaseRequestEmailBody_(vendor, items, teamLabel);
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    DB.sendPurchaseRequestEmail(emails, subject, body, function (ok, err) {
+      btn.disabled = false;
+      btn.textContent = '📧 Submit to coaches';
+      DB.toast(ok ? 'Sent to ' + emails.length + ' coach' + (emails.length === 1 ? '' : 'es') : 'Could not send: ' + err);
+    });
   }
 
   function csvField_(value) {
@@ -329,10 +476,10 @@
     });
     panel.appendChild(linkInput);
 
-    var linkStatus = document.createElement('p');
+    var linkStatus = document.createElement('div');
     linkStatus.className = 'card-meta';
     panel.appendChild(linkStatus);
-    wireLinkAutofill(linkInput, vendorInput, costInput, linkStatus);
+    wireLinkAutofill(linkInput, null, vendorInput, costInput, qtyInput, linkStatus);
 
     if (part.link) {
       var linkA = document.createElement('a');
@@ -357,7 +504,7 @@
   }
 
   if (el.form) {
-    if (el.form.link) wireLinkAutofill(el.form.link, el.form.vendor, el.form.cost, el.formStatus);
+    if (el.form.link) wireLinkAutofill(el.form.link, el.form.item, el.form.vendor, el.form.cost, el.form.qty, el.formStatus);
 
     el.form.addEventListener('submit', function (e) {
       e.preventDefault();
