@@ -909,6 +909,24 @@
     cancelBtn.addEventListener('click', closeModal_);
     row.appendChild(saveBtn);
     row.appendChild(cancelBtn);
+
+    // Deleting a goal or deadline outright (not just marking it Done) is
+    // mentor-only — students can edit their own items but shouldn't be able
+    // to unilaterally erase team goals or competition deadlines.
+    if (VIEW === 'mentor') {
+      var deleteBtn = document.createElement('button');
+      deleteBtn.className = 'secondary';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', function () {
+        if (!window.confirm('Delete "' + item.title + '"? This can\'t be undone.')) return;
+        var action = item.type === 'deadline' ? 'deleteDeadline' : 'deleteGoal';
+        post(action, item.id, {}, function (ok) {
+          if (ok) closeModal_();
+        });
+      });
+      row.appendChild(deleteBtn);
+    }
+
     dialog.appendChild(row);
 
     saveBtn.addEventListener('click', function () {
@@ -1126,6 +1144,14 @@
         eventType: fields.subtype || 'Other',
         notes: fields.notes || '',
       });
+    },
+
+    deleteGoal: function (id) {
+      return teamRef_().collection('goals').doc(id).delete();
+    },
+
+    deleteDeadline: function (id) {
+      return teamRef_().collection('deadlines').doc(id).delete();
     },
 
     addPersonalGoal: function (id, fields) {
