@@ -133,6 +133,11 @@
       card.style.transform = '';
       clearHighlight();
 
+      // Barely any movement = this was a click, not a drag — open the
+      // editor instead of trying to find a drop column for it.
+      var moved = Math.abs(e.clientX - startX) + Math.abs(e.clientY - startY);
+      if (moved < 5) { DB.editItem(goal); return; }
+
       var target = document.elementFromPoint(e.clientX, e.clientY);
       var col = target && target.closest('.kanban-column');
       if (!col) return;

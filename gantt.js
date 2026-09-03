@@ -190,6 +190,7 @@
     bar.appendChild(tip);
 
     if (goal.startDate) attachDragToReschedule(bar, goal, pixelsPerDay, tip);
+    else bar.addEventListener('click', function () { DB.editItem(goal); });
     row.appendChild(bar);
     return row;
   }
@@ -220,7 +221,7 @@
       bar.classList.remove('dragging');
       bar.style.transform = '';
       tip.classList.remove('show');
-      if (!deltaDays) return;
+      if (!deltaDays) { DB.editItem(goal); return; } // no horizontal movement = a click, not a drag
 
       var prevStart = goal.startDate;
       var prevTarget = goal.targetDate;
@@ -277,6 +278,8 @@
       var label = document.createElement('span');
       label.className = 'priority-label';
       label.textContent = goal.title;
+      label.title = 'Click to edit';
+      label.addEventListener('click', function () { DB.editItem(goal); });
       row.appendChild(label);
 
       var buttons = document.createElement('div');

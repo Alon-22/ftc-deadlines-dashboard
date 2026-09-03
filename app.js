@@ -397,8 +397,9 @@
       subtype: d.eventType || 'Other',
       id: doc.id,
       title: d.title,
-      owner: '',
+      owner: d.owner || '',
       group: '',
+      startDate: d.startDate || null,
       targetDate: d.targetDate || null,
       status: '',
       notes: d.notes || '',
@@ -593,8 +594,10 @@
 
     var titleWrap = document.createElement('div');
     var title = document.createElement('p');
-    title.className = 'card-title';
+    title.className = 'card-title card-title-clickable';
     title.textContent = item.title;
+    title.title = 'Click to edit';
+    title.addEventListener('click', function () { openEditModal(item); });
     titleWrap.appendChild(title);
 
     var meta = document.createElement('div');
@@ -664,7 +667,7 @@
     var editBtn = document.createElement('button');
     editBtn.className = 'secondary';
     editBtn.textContent = 'Edit';
-    editBtn.addEventListener('click', function () { toggleEdit(card, item); });
+    editBtn.addEventListener('click', function () { openEditModal(item); });
     actions.appendChild(editBtn);
 
     if (item.type === 'goal') {
@@ -722,13 +725,52 @@
     return '' + d.getFullYear() + mm + dd;
   }
 
-  function toggleEdit(card, item) {
-    if (card.querySelector('.card-notes-edit')) return; // already open
+  // ===== Edit modal ============================================================
+  // The one editor for a task, reachable by clicking it anywhere it appears —
+  // card, Kanban card, Gantt bar or priority row, Calendar pill, To-Do title.
+  // Every one of those files is a different shape of DOM, so a shared inline
+  // expand (like the old per-card panel this replaced) can't work uniformly;
+  // a modal can. Exposed as DB.editItem so those other files can call it too.
 
-    var wrap = document.createElement('div');
-    wrap.className = 'card-notes card-notes-edit';
+  function dateInputValue_(iso) {
+    return iso ? new Date(iso).toISOString().slice(0, 10) : '';
+  }
 
-    var statusSelect, linkInput;
+  function closeModal_() {
+    var existing = document.querySelector('.modal-overlay');
+    if (existing) existing.remove();
+  }
+
+  function openEditModal(item) {
+    closeModal_(); // only one at a time
+
+    var overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) closeModal_(); });
+
+    var dialog = document.createElement('div');
+    dialog.className = 'modal-dialog';
+    overlay.appendChild(dialog);
+
+    var heading = document.createElement('h3');
+    heading.textContent = item.type === 'deadline' ? 'Edit deadline' : 'Edit goal';
+    dialog.appendChild(heading);
+
+    var titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.value = item.title || '';
+    titleInput.placeholder = 'Title';
+    dialog.appendChild(titleInput);
+
+    var ownerRow = document.createElement('div');
+    ownerRow.className = 'row';
+    var ownerInput = document.createElement('input');
+    ownerInput.type = 'text';
+    ownerInput.value = item.owner || '';
+    ownerInput.placeholder = 'Name(s), comma-separated';
+    ownerRow.appendChild(ownerInput);
+
+    var statusSelect;
     if (item.type === 'goal') {
       statusSelect = document.createElement('select');
       ['Not started', 'Green', 'Yellow', 'Red', 'Done'].forEach(function (s) {
@@ -738,20 +780,31 @@
         if (s === item.status) opt.selected = true;
         statusSelect.appendChild(opt);
       });
-      wrap.appendChild(statusSelect);
+      ownerRow.appendChild(statusSelect);
     }
+    dialog.appendChild(ownerRow);
 
-    var textarea = document.createElement('textarea');
-    textarea.value = item.notes || '';
-    textarea.placeholder = 'What moved since last time?';
-    wrap.appendChild(textarea);
+    var dateRow = document.createElement('div');
+    dateRow.className = 'row';
+    var startInput = document.createElement('input');
+    startInput.type = 'date';
+    startInput.value = dateInputValue_(item.startDate);
+    startInput.title = 'Start date';
+    dateRow.appendChild(startInput);
+    var targetInput = document.createElement('input');
+    targetInput.type = 'date';
+    targetInput.value = dateInputValue_(item.targetDate);
+    targetInput.title = item.type === 'deadline' ? 'Event date' : 'Target date';
+    dateRow.appendChild(targetInput);
+    dialog.appendChild(dateRow);
 
+    var linkInput;
     if (item.type === 'goal') {
       linkInput = document.createElement('input');
       linkInput.type = 'text';
       linkInput.value = item.link || '';
       linkInput.placeholder = 'Link to CAD/design file/doc (optional)';
-      wrap.appendChild(linkInput);
+      dialog.appendChild(linkInput);
     }
 
     var blockedBySelect, repeatsSelect;
@@ -786,35 +839,50 @@
         });
       depRow.appendChild(repeatsSelect);
 
-      wrap.appendChild(depRow);
+      dialog.appendChild(depRow);
     }
 
+    var textarea = document.createElement('textarea');
+    textarea.value = item.notes || '';
+    textarea.placeholder = 'What moved since last time?';
+    dialog.appendChild(textarea);
+
     var row = document.createElement('div');
-    row.className = 'card-actions';
+    row.className = 'modal-actions';
     var saveBtn = document.createElement('button');
     saveBtn.textContent = 'Save';
     var cancelBtn = document.createElement('button');
     cancelBtn.className = 'secondary';
     cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', function () { wrap.remove(); row.remove(); });
+    cancelBtn.addEventListener('click', closeModal_);
     row.appendChild(saveBtn);
     row.appendChild(cancelBtn);
+    dialog.appendChild(row);
 
     saveBtn.addEventListener('click', function () {
-      var fields = { lastUpdate: textarea.value };
-      if (statusSelect) fields.status = statusSelect.value;
-      if (linkInput) fields.link = linkInput.value.trim();
-      if (blockedBySelect) fields.blockedBy = blockedBySelect.value;
-      if (repeatsSelect) fields.repeats = repeatsSelect.value;
+      var fields = {
+        title: titleInput.value.trim(),
+        owner: ownerInput.value.trim(),
+        startDate: startInput.value,
+        targetDate: targetInput.value,
+      };
+      if (item.type === 'deadline') {
+        fields.notes = textarea.value;
+      } else {
+        fields.lastUpdate = textarea.value;
+        fields.status = statusSelect.value;
+        fields.link = linkInput.value.trim();
+        fields.blockedBy = blockedBySelect.value;
+        fields.repeats = repeatsSelect.value;
+      }
       var action = item.type === 'deadline' ? 'updateDeadline' : 'updateGoal';
-      if (item.type === 'deadline') fields = { notes: textarea.value };
       post(action, item.id, fields, function (ok) {
-        if (ok) { wrap.remove(); row.remove(); }
+        if (ok) closeModal_();
       });
     });
 
-    card.appendChild(wrap);
-    card.appendChild(row);
+    document.body.appendChild(overlay);
+    titleInput.focus();
   }
 
   // Returns the blocking goal only while it's still open — once it's Done
@@ -970,13 +1038,15 @@
   var WRITE_HANDLERS = {
     updateGoal: function (id, fields) {
       var patch = {};
+      if ('title' in fields) patch.title = fields.title;
+      if ('owner' in fields) { patch.owner = fields.owner; patch.owners = ownerNames_(fields.owner); }
       if ('status' in fields) patch.status = fields.status;
       if ('lastUpdate' in fields) patch.notes = fields.lastUpdate;
       if ('link' in fields) patch.link = fields.link;
       if ('blockedBy' in fields) patch.blockedBy = fields.blockedBy;
       if ('repeats' in fields) patch.repeats = fields.repeats;
-      if ('startDate' in fields) patch.startDate = new Date(fields.startDate).toISOString();
-      if ('targetDate' in fields) patch.targetDate = new Date(fields.targetDate).toISOString();
+      if ('startDate' in fields) patch.startDate = fields.startDate ? new Date(fields.startDate).toISOString() : null;
+      if ('targetDate' in fields) patch.targetDate = fields.targetDate ? new Date(fields.targetDate).toISOString() : null;
 
       var existing = (state.data.items || []).filter(function (i) { return i.id === id && i.type === 'goal'; })[0];
       var justCompletedRecurring = existing && existing.status !== 'Done' && patch.status === 'Done' &&
@@ -989,7 +1059,11 @@
 
     updateDeadline: function (id, fields) {
       var patch = {};
+      if ('title' in fields) patch.title = fields.title;
+      if ('owner' in fields) patch.owner = fields.owner;
       if ('notes' in fields) patch.notes = fields.notes;
+      if ('startDate' in fields) patch.startDate = fields.startDate ? new Date(fields.startDate).toISOString() : null;
+      if ('targetDate' in fields) patch.targetDate = fields.targetDate ? new Date(fields.targetDate).toISOString() : null;
       return teamRef_().collection('deadlines').doc(id).update(patch);
     },
 
@@ -1304,6 +1378,7 @@
     escapeHtml: escapeHtml,
     urgencyClass: urgencyClass,
     buildCard: buildCard, // the editable card (Edit + Add-to-calendar) used everywhere else — reuse it, don't rebuild it
+    editItem: openEditModal, // the shared edit modal — kanban/gantt/calendar/todo call this on click since they don't render full cards
     uploadPhoto: uploadPhoto,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without

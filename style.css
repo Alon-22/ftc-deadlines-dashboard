@@ -583,6 +583,11 @@ section.group.group-alert h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.priority-label:hover {
+  text-decoration: underline;
 }
 
 .priority-buttons {
@@ -711,6 +716,11 @@ section.group.group-alert h2 {
 .todo-goal-title {
   font-weight: 600;
   margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.todo-goal-title:hover {
+  text-decoration: underline;
 }
 
 .todo-subtasks {
@@ -911,6 +921,7 @@ section.group.group-alert h2 {
   white-space: nowrap;
   color: white;
   background: var(--gray);
+  cursor: pointer;
 }
 
 .calendar-pill.urgency-red { background: var(--red); }
@@ -1033,4 +1044,61 @@ section.group.group-alert h2 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+/* ===== Edit modal (click any task, anywhere, to open this) ===== */
+
+.card-title-clickable {
+  cursor: pointer;
+}
+
+.card-title-clickable:hover {
+  text-decoration: underline;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: grid;
+  gap: 10px;
+}
+
+.modal-dialog h3 {
+  margin: 0 0 4px;
+}
+
+.modal-dialog .row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.modal-dialog .row > * {
+  flex: 1;
+  min-width: 120px;
+}
+
+.modal-dialog textarea {
+  min-height: 70px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
 }

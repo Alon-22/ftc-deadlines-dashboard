@@ -1,8 +1,9 @@
 // calendar.js — Calendar tab: a full month grid of every goal/deadline
 // with a target date, color-coded by urgency, so a crunch week is
 // obvious at a glance instead of only showing up as separate countdown
-// cards. Read-only — no writes here. Talks to the rest of the app only
-// through window.DB.
+// cards. Click a pill to edit that item (opens app.js's shared modal —
+// this file still never talks to Firestore directly). Talks to the rest
+// of the app only through window.DB.
 
 (function () {
   'use strict';
@@ -106,6 +107,7 @@
       pill.className = 'calendar-pill urgency-' + DB.urgencyClass(item);
       pill.textContent = item.title;
       pill.title = item.title + (item.owner ? ' — ' + item.owner : '');
+      pill.addEventListener('click', function () { DB.editItem(item); });
       cell.appendChild(pill);
     });
     if (items.length > MAX_PER_DAY) {

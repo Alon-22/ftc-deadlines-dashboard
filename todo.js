@@ -111,6 +111,8 @@
     var title = document.createElement('div');
     title.className = 'todo-goal-title';
     title.textContent = goal.title;
+    title.title = 'Click to edit';
+    title.addEventListener('click', function () { DB.editItem(goal); });
     block.appendChild(title);
 
     var subList = document.createElement('div');
