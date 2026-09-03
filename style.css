@@ -1113,3 +1113,24 @@ section.group.group-alert h2 {
   display: flex;
   gap: 8px;
 }
+
+/* ===== Request for Purchase (per-vendor carts) ===== */
+
+.rfp-cart {
+  margin-bottom: 8px;
+}
+
+.rfp-cart .checklist-item-header {
+  cursor: default;
+}
+
+.rfp-cart-items {
+  margin: 0;
+  padding: 0 14px 8px 30px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.rfp-cart .card-actions {
+  padding: 0 14px 12px;
+}

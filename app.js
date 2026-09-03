@@ -1273,6 +1273,16 @@
     deletePart: function (id) {
       return teamRef_().collection('parts').doc(id).delete();
     },
+
+    // Bulk "mark this vendor's cart as ordered" after exporting a Request
+    // for Purchase — same batch-write pattern resetChecklistItems uses.
+    markPartsOrdered: function (id, fields) {
+      var batch = db.batch();
+      (fields.ids || []).forEach(function (partId) {
+        batch.update(teamRef_().collection('parts').doc(partId), { status: 'Ordered' });
+      });
+      return batch.commit();
+    },
   };
 
   function onAddDeadline(e) {

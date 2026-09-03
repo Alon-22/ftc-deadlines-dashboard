@@ -15,6 +15,7 @@
     summary: document.getElementById('budget-summary'),
     list: document.getElementById('budget-list'),
     form: document.getElementById('add-part-form'),
+    requestList: document.getElementById('budget-request-list'), // mentor.html only
   };
   if (!el.list && !el.form) return; // no Budget tab on this page
 
@@ -33,6 +34,7 @@
   function render() {
     if (el.summary) renderSummary();
     if (el.list) renderList();
+    if (el.requestList) renderRequestSection();
   }
 
   function renderSummary() {
@@ -61,6 +63,115 @@
     }
     parts.slice().sort(function (a, b) { return (a.item || '').localeCompare(b.item || ''); })
       .forEach(function (p) { el.list.appendChild(buildRow(p)); });
+  }
+
+  // ===== Request for Purchase ==================================================
+  // Every Wishlist part, grouped by vendor — a mentor's shopping cart per
+  // vendor. Export turns that group into a CSV a purchasing office or
+  // treasurer can act on; once it's actually been submitted, "Mark
+  // ordered" bulk-flips the whole cart to Ordered in one write.
+
+  function renderRequestSection() {
+    var wishlist = parts.filter(function (p) { return (p.status || 'Wishlist') === 'Wishlist'; });
+    el.requestList.innerHTML = '';
+    if (!wishlist.length) {
+      el.requestList.innerHTML = '<p class="empty-state">Nothing on the wishlist to request right now.</p>';
+      return;
+    }
+
+    var byVendor = {};
+    wishlist.forEach(function (p) {
+      var key = p.vendor || '(No vendor specified)';
+      if (!byVendor[key]) byVendor[key] = [];
+      byVendor[key].push(p);
+    });
+
+    Object.keys(byVendor).sort().forEach(function (vendor) {
+      el.requestList.appendChild(buildVendorCart(vendor, byVendor[vendor]));
+    });
+  }
+
+  function cartTotal(items) {
+    return items.reduce(function (sum, p) { return sum + (p.cost || 0) * (p.qty || 1); }, 0);
+  }
+
+  function buildVendorCart(vendor, items) {
+    var box = document.createElement('div');
+    box.className = 'checklist-item rfp-cart';
+
+    var header = document.createElement('div');
+    header.className = 'checklist-item-header';
+    var titleSpan = document.createElement('span');
+    titleSpan.className = 'checklist-item-title';
+    titleSpan.textContent = vendor + ' — ' + items.length + (items.length === 1 ? ' item' : ' items') + ', ' + money(cartTotal(items));
+    header.appendChild(titleSpan);
+    box.appendChild(header);
+
+    var itemList = document.createElement('ul');
+    itemList.className = 'rfp-cart-items';
+    items.forEach(function (p) {
+      var li = document.createElement('li');
+      li.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0);
+      itemList.appendChild(li);
+    });
+    box.appendChild(itemList);
+
+    var actions = document.createElement('div');
+    actions.className = 'card-actions';
+
+    var exportBtn = document.createElement('button');
+    exportBtn.type = 'button';
+    exportBtn.className = 'secondary';
+    exportBtn.textContent = '⬇️ Export cart (CSV)';
+    exportBtn.addEventListener('click', function () { exportVendorCSV(vendor, items); });
+    actions.appendChild(exportBtn);
+
+    var orderedBtn = document.createElement('button');
+    orderedBtn.type = 'button';
+    orderedBtn.className = 'secondary';
+    orderedBtn.textContent = 'Mark cart as Ordered';
+    orderedBtn.addEventListener('click', function () {
+      if (!window.confirm('Mark all ' + items.length + ' item(s) from ' + vendor + ' as Ordered?')) return;
+      DB.post('markPartsOrdered', null, { ids: items.map(function (p) { return p.id; }) }, function () {});
+    });
+    actions.appendChild(orderedBtn);
+
+    box.appendChild(actions);
+    return box;
+  }
+
+  function csvField_(value) {
+    var s = String(value == null ? '' : value);
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+
+  function exportVendorCSV(vendor, items) {
+    var teamLabel = (DB.teamConfig() || {}).label || DB.state.team || '';
+    var lines = [];
+    lines.push([csvField_('Purchase Request')].join(','));
+    lines.push([csvField_('Team'), csvField_(teamLabel)].join(','));
+    lines.push([csvField_('Vendor'), csvField_(vendor)].join(','));
+    lines.push([csvField_('Date'), csvField_(new Date().toLocaleDateString())].join(','));
+    lines.push('');
+    lines.push(['Item', 'Link', 'Qty', 'Cost Each', 'Line Total'].map(csvField_).join(','));
+    items.forEach(function (p) {
+      var lineTotal = (p.cost || 0) * (p.qty || 1);
+      lines.push([p.item, p.link || '', p.qty || 1, (p.cost || 0).toFixed(2), lineTotal.toFixed(2)].map(csvField_).join(','));
+    });
+    lines.push('');
+    lines.push(['', '', '', 'Total', cartTotal(items).toFixed(2)].map(csvField_).join(','));
+
+    var csv = lines.join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var safeVendor = vendor.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'vendor';
+    a.href = url;
+    a.download = 'purchase-request-' + safeVendor + '-' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function statusClass(status) {
