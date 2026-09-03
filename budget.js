@@ -9,7 +9,7 @@
   var DB = window.DB;
   if (!DB) return;
 
-  var STATUSES = ['Wishlist', 'Ordered', 'Received'];
+  var STATUSES = ['Wishlist', 'Out of Stock', 'Ordered', 'Received'];
 
   var el = {
     summary: document.getElementById('budget-summary'),
@@ -75,8 +75,9 @@
   }
 
   var TAX_RATE_KEY = 'ftc-budget-tax-rate';
+  var DEFAULT_TAX_RATE = '7.25'; // California's statewide base sales tax rate — most FTC teams here are CA-based; a saved rate (once someone edits it) always wins
   function savedTaxRate_() {
-    try { return localStorage.getItem(TAX_RATE_KEY) || ''; } catch (e) { return ''; }
+    try { return localStorage.getItem(TAX_RATE_KEY) || DEFAULT_TAX_RATE; } catch (e) { return DEFAULT_TAX_RATE; }
   }
   function saveTaxRate_(rate) {
     try { localStorage.setItem(TAX_RATE_KEY, rate); } catch (e) { /* private browsing, etc — fine to skip */ }
@@ -88,8 +89,13 @@
   // remembered tax rate, live total as qty/tax change) so the mentor sees
   // the real math before it's saved. Never overwrites a value already
   // sitting in a field — pasting a link after you've typed your own
-  // vendor/cost/name leaves those alone.
-  function wireLinkAutofill(linkInput, itemInput, vendorInput, costInput, qtyInput, cardEl) {
+  // vendor/cost/name leaves those alone. statusSelect is optional (the
+  // edit panel and add-form both have one); when the page reports the item
+  // is out of stock, it gets pushed to "Out of Stock" so it's set aside
+  // from the Request for Purchase cart — but only if the status is still
+  // at its default "Wishlist", so it never clobbers a status someone
+  // already deliberately chose.
+  function wireLinkAutofill(linkInput, itemInput, vendorInput, costInput, qtyInput, cardEl, statusSelect) {
     linkInput.addEventListener('change', function () {
       var url = linkInput.value.trim();
       if (cardEl) cardEl.innerHTML = '';
@@ -116,6 +122,11 @@
           itemInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
 
+        if (statusSelect && info.inStock === false && statusSelect.value === 'Wishlist') {
+          statusSelect.value = 'Out of Stock';
+          statusSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
         var discountRate = VENDOR_DISCOUNTS[hostnameOf_(url)] || 0;
         // Round once, right here, and use that same rounded number for the
         // card's own math below — otherwise the card's total (computed from
@@ -140,6 +151,13 @@
       titleP.className = 'lookup-card-title';
       titleP.textContent = info.title;
       cardEl.appendChild(titleP);
+    }
+
+    if (info.inStock === false) {
+      var stockP = document.createElement('p');
+      stockP.className = 'lookup-card-stock-warning';
+      stockP.textContent = '⚠️ Currently out of stock — set aside; it\'ll move back to the wishlist automatically once it\'s back in stock.';
+      cardEl.appendChild(stockP);
     }
 
     var listP = document.createElement('p');
@@ -262,9 +280,50 @@
 
     var itemList = document.createElement('ul');
     itemList.className = 'rfp-cart-items';
+    var running = 0;
     items.forEach(function (p) {
       var li = document.createElement('li');
-      li.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0) + ' ';
+      li.className = 'rfp-cart-item';
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'rfp-cart-item-name';
+      nameSpan.textContent = p.item;
+      li.appendChild(nameSpan);
+
+      var qtyInput = document.createElement('input');
+      qtyInput.type = 'number';
+      qtyInput.min = '1';
+      qtyInput.title = 'Quantity';
+      qtyInput.className = 'rfp-cart-item-qty';
+      qtyInput.value = p.qty || 1;
+      li.appendChild(qtyInput);
+
+      var xSpan = document.createElement('span');
+      xSpan.textContent = '×';
+      li.appendChild(xSpan);
+
+      var costInput = document.createElement('input');
+      costInput.type = 'number';
+      costInput.step = '0.01';
+      costInput.min = '0';
+      costInput.title = 'Cost each';
+      costInput.className = 'rfp-cart-item-cost';
+      costInput.value = p.cost || 0;
+      li.appendChild(costInput);
+
+      var lineTotal = (p.cost || 0) * (p.qty || 1);
+      running += lineTotal;
+
+      var lineTotalSpan = document.createElement('span');
+      lineTotalSpan.className = 'rfp-cart-item-linetotal';
+      lineTotalSpan.textContent = '= ' + money(lineTotal);
+      li.appendChild(lineTotalSpan);
+
+      var runningSpan = document.createElement('span');
+      runningSpan.className = 'rfp-cart-item-running';
+      runningSpan.textContent = '(running total: ' + money(running) + ')';
+      li.appendChild(runningSpan);
+
       if (p.link) {
         var linkA = document.createElement('a');
         linkA.href = p.link;
@@ -273,6 +332,14 @@
         linkA.textContent = '🔗 link';
         li.appendChild(linkA);
       }
+
+      qtyInput.addEventListener('change', function () {
+        DB.post('updatePart', p.id, { qty: qtyInput.value }, function () {});
+      });
+      costInput.addEventListener('change', function () {
+        DB.post('updatePart', p.id, { cost: costInput.value }, function () {});
+      });
+
       itemList.appendChild(li);
     });
     box.appendChild(itemList);
@@ -384,7 +451,7 @@
   }
 
   function statusClass(status) {
-    return 'checklist-status-' + (status || 'wishlist').toLowerCase();
+    return 'checklist-status-' + (status || 'wishlist').toLowerCase().replace(/\s+/g, '-');
   }
 
   function buildRow(part) {
@@ -479,7 +546,7 @@
     var linkStatus = document.createElement('div');
     linkStatus.className = 'card-meta';
     panel.appendChild(linkStatus);
-    wireLinkAutofill(linkInput, null, vendorInput, costInput, qtyInput, linkStatus);
+    wireLinkAutofill(linkInput, null, vendorInput, costInput, qtyInput, linkStatus, statusSelect);
 
     if (part.link) {
       var linkA = document.createElement('a');
@@ -504,7 +571,7 @@
   }
 
   if (el.form) {
-    if (el.form.link) wireLinkAutofill(el.form.link, el.form.item, el.form.vendor, el.form.cost, el.form.qty, el.formStatus);
+    if (el.form.link) wireLinkAutofill(el.form.link, el.form.item, el.form.vendor, el.form.cost, el.form.qty, el.formStatus, el.form.status);
 
     el.form.addEventListener('submit', function (e) {
       e.preventDefault();

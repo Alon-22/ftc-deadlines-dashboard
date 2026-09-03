@@ -1027,6 +1027,7 @@ section.group.group-alert h2 {
 /* ===== Parts & Budget ===== */
 
 .checklist-status-wishlist { background: var(--gray-bg); color: var(--gray); }
+.checklist-status-out-of-stock { background: var(--red-bg); color: var(--red); }
 .checklist-status-ordered { background: var(--yellow-bg); color: var(--yellow); }
 .checklist-status-received { background: var(--green-bg); color: var(--green); }
 
@@ -1139,6 +1140,37 @@ section.group.group-alert h2 {
   font-size: 0.8rem;
 }
 
+.rfp-cart-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 3px 0;
+}
+
+.rfp-cart-item-name {
+  flex: 1 1 auto;
+  min-width: 100px;
+}
+
+.rfp-cart-item-qty,
+.rfp-cart-item-cost {
+  width: 60px;
+  flex: none;
+  font-size: 0.85rem;
+  padding: 2px 4px;
+}
+
+.rfp-cart-item-linetotal {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.rfp-cart-item-running {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
 /* ===== "Paste a link" lookup card ===== */
 
 .lookup-card {
@@ -1176,4 +1208,9 @@ section.group.group-alert h2 {
   font-weight: 600;
   padding-top: 4px;
   border-top: 1px solid var(--border);
+}
+
+.lookup-card-stock-warning {
+  color: var(--red);
+  font-weight: 600;
 }

@@ -805,20 +805,26 @@ function lookupPartPrice_(teamKey, view, passcode, fields) {
   var info = extractProductInfo_(html);
   return info.price == null
       ? { ok: false, error: 'No price found on that page' }
-      : { ok: true, price: info.price, title: info.title || '' };
+      : { ok: true, price: info.price, title: info.title || '', inStock: info.inStock };
 }
 
 function extractProductInfo_(html) {
-  var result = { title: null, price: null };
+  // inStock stays null ("unknown") unless something on the page actually
+  // says one way or the other — silence isn't treated as evidence of
+  // stock either way, since most pages that ARE in stock never say so
+  // explicitly (only the JSON-LD/meta signals or an explicit "sold out"
+  // phrase count).
+  var result = { title: null, price: null, inStock: null };
 
   var ldMatches = html.match(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi) || [];
-  for (var i = 0; i < ldMatches.length && (result.price == null || result.title == null); i++) {
+  for (var i = 0; i < ldMatches.length && (result.price == null || result.title == null || result.inStock == null); i++) {
     var jsonText = ldMatches[i].replace(/^[\s\S]*?>/, '').replace(/<\/script>\s*$/i, '');
     try {
       var found = findProductInJson_(JSON.parse(jsonText));
       if (found) {
         if (result.price == null && found.price != null) result.price = found.price;
         if (result.title == null && found.name) result.title = found.name;
+        if (result.inStock == null && found.inStock != null) result.inStock = found.inStock;
       }
     } catch (e) { /* not valid JSON on this page — try the next block, or fall through */ }
   }
@@ -833,6 +839,14 @@ function extractProductInfo_(html) {
     if (dollarMatch) result.price = parseFloat(dollarMatch[1]);
   }
 
+  if (result.inStock == null) {
+    var metaAvail = html.match(/<meta[^>]+(?:property|itemprop)=["'](?:product:availability|og:availability|availability)["'][^>]+content=["']([^"']+)["']/i);
+    if (metaAvail) result.inStock = !/out\s*of\s*stock|outofstock|unavailable|sold\s*out/i.test(metaAvail[1]);
+  }
+  if (result.inStock == null && /out\s*of\s*stock|sold\s*out|currently\s*unavailable|notify\s*me\s*when\s*available/i.test(html)) {
+    result.inStock = false;
+  }
+
   if (result.title == null) {
     var ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
     if (ogTitle) result.title = decodeHtmlEntities_(ogTitle[1]);
@@ -845,7 +859,7 @@ function extractProductInfo_(html) {
   return result;
 }
 
-/** Walks a parsed JSON-LD object/array looking for a schema.org Product's name + its Offer's price. */
+/** Walks a parsed JSON-LD object/array looking for a schema.org Product's name, its Offer's price, and stock availability. */
 function findProductInJson_(node) {
   if (!node || typeof node !== 'object') return null;
   if (Array.isArray(node)) {
@@ -857,13 +871,18 @@ function findProductInJson_(node) {
   }
 
   var price = null;
+  var inStock = null;
   if (node.price != null && !isNaN(parseFloat(node.price))) {
     price = parseFloat(node.price);
+    if (node.availability) inStock = !/OutOfStock/i.test(String(node.availability));
   } else if (node.offers) {
     var offerResult = findProductInJson_(node.offers);
-    if (offerResult && offerResult.price != null) price = offerResult.price;
+    if (offerResult) {
+      if (offerResult.price != null) price = offerResult.price;
+      if (offerResult.inStock != null) inStock = offerResult.inStock;
+    }
   }
-  if (price != null) return { name: node.name || null, price: price };
+  if (price != null) return { name: node.name || null, price: price, inStock: inStock };
 
   if (node['@graph']) {
     var fromGraph = findProductInJson_(node['@graph']);
@@ -978,6 +997,30 @@ function firestoreSetDoc_(path, fields) {
   });
   var code = resp.getResponseCode();
   if (code < 200 || code >= 300) throw new Error('Firestore write failed (' + code + '): ' + resp.getContentText());
+  return JSON.parse(resp.getContentText());
+}
+
+/**
+ * Admin partial update of one Firestore document — only the given fields
+ * change, everything else on the document is left alone. Unlike
+ * firestoreSetDoc_ (a PATCH with no updateMask, which the Firestore REST
+ * API treats as "replace the whole document with just these fields" —
+ * fine for seeding a whole team doc, wrong for flipping one status field
+ * on a part without deleting its item/vendor/link/cost/qty), this sends
+ * updateMask.fieldPaths so it's a true partial update. Takes plain JS
+ * values, not pre-encoded ones.
+ */
+function firestoreUpdateDoc_(path, fields) {
+  var mask = Object.keys(fields).map(function (k) { return 'updateMask.fieldPaths=' + encodeURIComponent(k); }).join('&');
+  var resp = UrlFetchApp.fetch(firestoreBaseUrl_() + '/' + path + '?' + mask, {
+    method: 'patch',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + adminAccessToken_() },
+    payload: JSON.stringify({ fields: firestoreFields_(fields) }),
+    muteHttpExceptions: true,
+  });
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300) throw new Error('Firestore update failed (' + code + '): ' + resp.getContentText());
   return JSON.parse(resp.getContentText());
 }
 
@@ -1320,6 +1363,46 @@ function digestBody_(overdue, dueThisWeek, stuck) {
   section('Flagged stuck/slipping', stuck);
   lines.push('Open the dashboard to update these.');
   return lines.join('\n');
+}
+
+// ===== Backordered parts recheck ============================================
+// A part flagged "Out of Stock" (whether the link-lookup detected that
+// automatically or someone set it by hand) gets parked out of the Request
+// for Purchase flow — see budget.js. This is what un-parks it: once a day,
+// re-fetch every out-of-stock part's link and, the moment it's no longer
+// reporting out-of-stock, move it back to Wishlist so it's actionable
+// again. Errs toward restoring — a page whose stock status can no longer
+// be determined one way or the other is treated as "back," not left
+// stranded forever on a signal that quietly stopped being readable.
+
+/**
+ * Run once from the editor (Run menu) to install the daily trigger. Safe
+ * to re-run — clears any previous recheckBackorderedParts_ trigger first
+ * so this never ends up with two.
+ */
+function setupStockRecheck() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'recheckBackorderedParts_') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('recheckBackorderedParts_').timeBased().everyDays(1).atHour(6).create();
+}
+
+function recheckBackorderedParts_() {
+  Object.keys(TEAMS).forEach(function (teamKey) {
+    var parts = firestoreListDocs_('teams/' + teamKey + '/parts')
+      .filter(function (p) { return p.status === 'Out of Stock' && p.link; });
+
+    parts.forEach(function (p) {
+      try {
+        var resp = UrlFetchApp.fetch(p.link, { muteHttpExceptions: true, followRedirects: true });
+        if (resp.getResponseCode() >= 400) return; // page temporarily unreachable — try again tomorrow
+        var info = extractProductInfo_(resp.getContentText().slice(0, 400000));
+        if (info.inStock !== false) {
+          firestoreUpdateDoc_('teams/' + teamKey + '/parts/' + p.id, { status: 'Wishlist' });
+        }
+      } catch (e) { /* one bad link shouldn't stop the rest of the team's parts */ }
+    });
+  });
 }
 
 // ===== One-time per-team sheet setup =======================================
