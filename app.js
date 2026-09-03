@@ -248,7 +248,7 @@
       .then(function (r) { return r.json(); })
       .then(function (json) {
         if (!json.ok) return cb(null, json.error);
-        cb({ price: json.price, title: json.title || '' }, null);
+        cb({ price: json.price, title: json.title || '', inStock: json.inStock }, null);
       })
       .catch(function (err) { cb(null, String(err)); });
   }
