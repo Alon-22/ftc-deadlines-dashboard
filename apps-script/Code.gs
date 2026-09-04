@@ -939,10 +939,12 @@ function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
 
 // A pinned version number goes stale as Google retires old models (this
 // already happened once — 'gemini-2.0-flash' 404s as of Sep 2026) — the
-// '-latest' alias always resolves to Google's current low-cost fast model
+// '-latest' alias always resolves to Google's current model in that tier
 // instead, so this endpoint doesn't need a maintenance visit every time a
-// generation ships.
-var GEMINI_MODEL_ = 'gemini-flash-latest';
+// generation ships. 'flash-lite' is Google's cheapest tier — plenty for a
+// one-shot 1-5 classification or a three-line pass/fail check, neither of
+// which needs a stronger (and pricier) model.
+var GEMINI_MODEL_ = 'gemini-flash-lite-latest';
 
 // Shared call path for both Gemini-backed features below: builds the
 // request, retries once on a 503 ("model overloaded" — confirmed in
