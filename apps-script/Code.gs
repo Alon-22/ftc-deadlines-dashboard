@@ -961,25 +961,30 @@ function estimateDifficulty_(teamKey, view, passcode, fields) {
       'Task title: ' + title + (fields.notes ? '\nAdditional detail: ' + fields.notes : '') +
       '\nRespond with ONLY a JSON object, no other text: {"points": <integer 1-5>, "reasoning": "<one short sentence>"}';
 
-  var resp = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey),
-      {
-        method: 'post',
-        contentType: 'application/json',
-        muteHttpExceptions: true,
-        payload: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          // thinkingBudget: 0 turns off the model's internal reasoning
-          // tokens — without it, those tokens come out of the same
-          // maxOutputTokens budget as the actual answer, and on a longer
-          // prompt they could eat the whole budget and truncate the JSON
-          // before it's ever written (hit this in testing: a short prompt
-          // worked, a longer one silently produced a cut-off, unparseable
-          // response). Not needed for a one-shot 1-5 classification anyway.
-          generationConfig: { temperature: 0.2, maxOutputTokens: 300, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }
-  );
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var payload = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    // thinkingBudget: 0 turns off the model's internal reasoning
+    // tokens — without it, those tokens come out of the same
+    // maxOutputTokens budget as the actual answer, and on a longer
+    // prompt they could eat the whole budget and truncate the JSON
+    // before it's ever written (hit this in testing: a short prompt
+    // worked, a longer one silently produced a cut-off, unparseable
+    // response). Not needed for a one-shot 1-5 classification anyway.
+    generationConfig: { temperature: 0.2, maxOutputTokens: 300, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
+  });
+  var options = { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: payload };
+
+  var resp = UrlFetchApp.fetch(url, options);
+  // The free-tier flash model returns 503 ("overloaded") fairly often —
+  // confirmed in testing, roughly half of first attempts — and it's the
+  // textbook retryable status, so one short-delay retry before giving up
+  // meaningfully improves the real-world success rate for what's a
+  // fire-and-forget UI suggestion anyway.
+  if (resp.getResponseCode() === 503) {
+    Utilities.sleep(1500);
+    resp = UrlFetchApp.fetch(url, options);
+  }
   if (resp.getResponseCode() >= 300) {
     return { ok: false, error: 'Gemini request failed (' + resp.getResponseCode() + ')' };
   }
