@@ -969,7 +969,14 @@ function estimateDifficulty_(teamKey, view, passcode, fields) {
         muteHttpExceptions: true,
         payload: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.2, maxOutputTokens: 200, responseMimeType: 'application/json' },
+          // thinkingBudget: 0 turns off the model's internal reasoning
+          // tokens — without it, those tokens come out of the same
+          // maxOutputTokens budget as the actual answer, and on a longer
+          // prompt they could eat the whole budget and truncate the JSON
+          // before it's ever written (hit this in testing: a short prompt
+          // worked, a longer one silently produced a cut-off, unparseable
+          // response). Not needed for a one-shot 1-5 classification anyway.
+          generationConfig: { temperature: 0.2, maxOutputTokens: 300, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
         }),
       }
   );
