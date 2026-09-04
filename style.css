@@ -231,11 +231,6 @@ section.group.group-alert h2 {
   gap: 8px;
 }
 
-.card-actions .icon-btn {
-  padding-left: 10px;
-  padding-right: 10px;
-}
-
 .empty-state {
   color: var(--text-muted);
   font-size: 0.9rem;
@@ -1222,6 +1217,48 @@ section.group.group-alert h2 {
 
 .split-goal-row {
   gap: 8px;
+}
+
+/* ===== Goal modal: owned / scoped / checkable review ===== */
+
+.goal-review-results {
+  display: grid;
+  gap: 4px;
+}
+
+.goal-review-line {
+  margin: 0;
+  font-size: 0.85rem;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.goal-review-line.pass {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.goal-review-line.fail {
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+.goal-review-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.goal-review-suggestion p {
+  margin: 0;
+  flex: 1;
+  min-width: 160px;
+  font-size: 0.85rem;
 }
 
 /* ===== Request for Purchase (per-vendor carts) ===== */

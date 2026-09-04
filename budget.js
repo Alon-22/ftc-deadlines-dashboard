@@ -109,7 +109,7 @@
         }
       }
 
-      if (cardEl) cardEl.textContent = '🔍 Looking up price…';
+      if (cardEl) cardEl.textContent = 'Looking up price…';
       DB.lookupPartPrice(url, function (info, err) {
         if (cardEl) cardEl.innerHTML = '';
         if (!info || info.price == null) {
@@ -156,7 +156,7 @@
     if (info.inStock === false) {
       var stockP = document.createElement('p');
       stockP.className = 'lookup-card-stock-warning';
-      stockP.textContent = '⚠️ Currently out of stock — set aside; it\'ll move back to the wishlist automatically once it\'s back in stock.';
+      stockP.textContent = 'Currently out of stock — set aside; it\'ll move back to the wishlist automatically once it\'s back in stock.';
       cardEl.appendChild(stockP);
     }
 
@@ -329,7 +329,7 @@
         linkA.href = p.link;
         linkA.target = '_blank';
         linkA.rel = 'noopener';
-        linkA.textContent = '🔗 link';
+        linkA.textContent = 'Link';
         li.appendChild(linkA);
       }
 
@@ -350,7 +350,7 @@
     var exportBtn = document.createElement('button');
     exportBtn.type = 'button';
     exportBtn.className = 'secondary';
-    exportBtn.textContent = '⬇️ Export cart (CSV)';
+    exportBtn.textContent = 'Export cart (CSV)';
     exportBtn.addEventListener('click', function () { exportVendorCSV(vendor, items); });
     actions.appendChild(exportBtn);
 
@@ -367,7 +367,7 @@
     var submitBtn = document.createElement('button');
     submitBtn.type = 'button';
     submitBtn.className = 'secondary';
-    submitBtn.textContent = '📧 Submit to coaches';
+    submitBtn.textContent = 'Submit to coaches';
     submitBtn.addEventListener('click', function () { submitCartToCoaches_(vendor, items, submitBtn); });
     actions.appendChild(submitBtn);
 
@@ -411,7 +411,7 @@
     btn.textContent = 'Sending…';
     DB.sendPurchaseRequestEmail(emails, subject, body, function (ok, err) {
       btn.disabled = false;
-      btn.textContent = '📧 Submit to coaches';
+      btn.textContent = 'Submit to coaches';
       DB.toast(ok ? 'Sent to ' + emails.length + ' coach' + (emails.length === 1 ? '' : 'es') : 'Could not send: ' + err);
     });
   }
@@ -553,7 +553,7 @@
       linkA.href = part.link;
       linkA.target = '_blank';
       linkA.rel = 'noopener';
-      linkA.textContent = '🔗 View vendor page';
+      linkA.textContent = 'View vendor page';
       panel.appendChild(linkA);
     }
 

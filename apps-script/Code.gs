@@ -125,6 +125,8 @@ function handleRequest_(e, isPost) {
       result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else if (params.action === 'estimateDifficulty') {
       result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
+    } else if (params.action === 'reviewGoal') {
+      result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else {
       result = isPost ? handleWrite_(params) : handleRead_(params);
     }
@@ -942,45 +944,28 @@ function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
 // generation ships.
 var GEMINI_MODEL_ = 'gemini-flash-latest';
 
-function estimateDifficulty_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
-  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
-  if (!checkPasscode_(teamKey, view, passcode)) {
-    return { ok: false, error: 'Invalid or missing passcode' };
-  }
-  var title = (fields.title || '').trim();
-  if (!title) return { ok: false, error: 'Missing title' };
-
+// Shared call path for both Gemini-backed features below: builds the
+// request, retries once on a 503 ("model overloaded" — confirmed in
+// testing to happen on roughly half of first attempts on the free tier),
+// and parses the model's reply as JSON. thinkingBudget: 0 turns off the
+// model's internal reasoning tokens — without it, those tokens share the
+// same maxOutputTokens budget as the actual answer, and on a longer
+// prompt they could eat the whole budget and truncate the JSON before
+// it's ever written (hit this in testing: a short prompt worked, a
+// longer one silently produced a cut-off, unparseable response). Neither
+// feature here needs multi-step reasoning anyway.
+function callGemini_(prompt, maxOutputTokens) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) return { ok: false, error: 'Gemini API key not configured' };
-
-  var prompt = 'You are helping an FTC (FIRST Tech Challenge) robotics team estimate how ' +
-      'much effort a task will take, on a 1-5 scale (1 = a few minutes, e.g. "order a part" or ' +
-      '"email the mentor"; 3 = a solid work session, e.g. "wire the drivetrain"; 5 = a major ' +
-      'multi-day effort, e.g. "design and prototype a new intake mechanism"). ' +
-      'Task title: ' + title + (fields.notes ? '\nAdditional detail: ' + fields.notes : '') +
-      '\nRespond with ONLY a JSON object, no other text: {"points": <integer 1-5>, "reasoning": "<one short sentence>"}';
 
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey);
   var payload = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    // thinkingBudget: 0 turns off the model's internal reasoning
-    // tokens — without it, those tokens come out of the same
-    // maxOutputTokens budget as the actual answer, and on a longer
-    // prompt they could eat the whole budget and truncate the JSON
-    // before it's ever written (hit this in testing: a short prompt
-    // worked, a longer one silently produced a cut-off, unparseable
-    // response). Not needed for a one-shot 1-5 classification anyway.
-    generationConfig: { temperature: 0.2, maxOutputTokens: 300, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.2, maxOutputTokens: maxOutputTokens, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
   });
   var options = { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: payload };
 
   var resp = UrlFetchApp.fetch(url, options);
-  // The free-tier flash model returns 503 ("overloaded") fairly often —
-  // confirmed in testing, roughly half of first attempts — and it's the
-  // textbook retryable status, so one short-delay retry before giving up
-  // meaningfully improves the real-world success rate for what's a
-  // fire-and-forget UI suggestion anyway.
   if (resp.getResponseCode() === 503) {
     Utilities.sleep(1500);
     resp = UrlFetchApp.fetch(url, options);
@@ -992,13 +977,77 @@ function estimateDifficulty_(teamKey, view, passcode, fields) {
   try {
     var body = JSON.parse(resp.getContentText());
     var text = body.candidates[0].content.parts[0].text;
-    var parsed = JSON.parse(text);
-    var points = Math.max(1, Math.min(5, Math.round(Number(parsed.points))));
-    if (!points) return { ok: false, error: 'Could not parse a point estimate' };
-    return { ok: true, points: points, reasoning: parsed.reasoning || '' };
+    return { ok: true, json: JSON.parse(text) };
   } catch (e) {
     return { ok: false, error: 'Could not parse Gemini response' };
   }
+}
+
+function estimateDifficulty_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var title = (fields.title || '').trim();
+  if (!title) return { ok: false, error: 'Missing title' };
+
+  var prompt = 'You are helping an FTC (FIRST Tech Challenge) robotics team estimate how ' +
+      'much effort a task will take, on a 1-5 scale (1 = a few minutes, e.g. "order a part" or ' +
+      '"email the mentor"; 3 = a solid work session, e.g. "wire the drivetrain"; 5 = a major ' +
+      'multi-day effort, e.g. "design and prototype a new intake mechanism"). ' +
+      'Task title: ' + title + (fields.notes ? '\nAdditional detail: ' + fields.notes : '') +
+      '\nRespond with ONLY a JSON object, no other text: {"points": <integer 1-5>, "reasoning": "<one short sentence>"}';
+
+  var result = callGemini_(prompt, 300);
+  if (!result.ok) return result;
+  var parsed = result.json;
+  var points = Math.max(1, Math.min(5, Math.round(Number(parsed.points))));
+  if (!points) return { ok: false, error: 'Could not parse a point estimate' };
+  return { ok: true, points: points, reasoning: parsed.reasoning || '' };
+}
+
+// ===== Goal quality review (Gemini) =========================================
+// Checks a goal against three plain-language tests and, if it fails one,
+// suggests a rewritten title that would pass all three. Purely advisory —
+// nothing is changed until the team applies the suggestion and hits Save
+// themselves.
+
+function reviewGoal_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var title = (fields.title || '').trim();
+  if (!title) return { ok: false, error: 'Missing title' };
+
+  var prompt = 'You are helping an FTC (FIRST Tech Challenge) robotics team write clearer goals. ' +
+      'A good goal passes three tests:\n' +
+      '1. OWNED - Is this ours to do? If it depends on other teams, the schedule, or luck, it belongs to somebody else. Put a name on it.\n' +
+      '2. SCOPED - Is this the right size for the time, parts, and people we actually have? If nobody is sure, cut it in half.\n' +
+      '3. CHECKABLE - On the deadline, could two people look at it and agree, without arguing, on whether it happened?\n\n' +
+      'Evaluate this goal against all three tests:\n' +
+      'Title: ' + title + '\n' +
+      (fields.owner ? 'Owner(s): ' + fields.owner + '\n' : '') +
+      (fields.notes ? 'Notes: ' + fields.notes + '\n' : '') +
+      (fields.targetDate ? 'Target date: ' + fields.targetDate + '\n' : '') +
+      '\nRespond with ONLY a JSON object, no other text: {"owned": {"pass": true or false, "reason": "<one short sentence>"}, ' +
+      '"scoped": {"pass": true or false, "reason": "<one short sentence>"}, ' +
+      '"checkable": {"pass": true or false, "reason": "<one short sentence>"}, ' +
+      '"suggestedTitle": "<a rewritten title that would pass all three tests, or null if no change is needed>"}';
+
+  var result = callGemini_(prompt, 500);
+  if (!result.ok) return result;
+  var parsed = result.json;
+  function criterion_(c) { return { pass: !!(c && c.pass), reason: (c && c.reason) || '' }; }
+  return {
+    ok: true,
+    owned: criterion_(parsed.owned),
+    scoped: criterion_(parsed.scoped),
+    checkable: criterion_(parsed.checkable),
+    suggestedTitle: parsed.suggestedTitle || null,
+  };
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===

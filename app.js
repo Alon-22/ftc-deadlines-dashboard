@@ -336,6 +336,31 @@
       .catch(function (err) { cb(null, String(err)); });
   }
 
+  // Checks a goal against three plain-language tests via Gemini — owned,
+  // scoped, checkable — and suggests a rewritten title when it fails one.
+  // Purely advisory: nothing changes until the team applies the
+  // suggestion themselves and hits Save.
+  function reviewGoal(title, owner, notes, targetDate, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    fetch(team.webAppUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'reviewGoal',
+        team: state.team,
+        view: VIEW,
+        passcode: state.passcode,
+        fields: { title: title, owner: owner || '', notes: notes || '', targetDate: targetDate || '' },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb({ owned: json.owned, scoped: json.scoped, checkable: json.checkable, suggestedTitle: json.suggestedTitle }, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
   // On leaving the title field of an add-goal form, suggest a points value
   // via estimateDifficulty — never overwrites a value someone already typed
   // (same "don't clobber what's there" convention as Budget's link autofill).
@@ -345,13 +370,13 @@
       var title = form.title.value.trim();
       if (statusEl) statusEl.textContent = '';
       if (!title || form.points.value) return;
-      if (statusEl) statusEl.textContent = '🤔 Estimating difficulty…';
+      if (statusEl) statusEl.textContent = 'Estimating difficulty…';
       estimateDifficulty(title, '', function (info, err) {
         if (statusEl) statusEl.textContent = '';
         if (!info) { if (statusEl && err) statusEl.textContent = ''; return; }
         if (!form.points.value) {
           form.points.value = info.points;
-          if (statusEl) statusEl.textContent = '🤖 Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '') + ' (edit freely)';
+          if (statusEl) statusEl.textContent = 'Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '') + ' (edit freely)';
         }
       });
     });
@@ -771,7 +796,7 @@
     if (blocker) {
       var blockedBadge = document.createElement('span');
       blockedBadge.className = 'badge blocked-badge';
-      blockedBadge.textContent = '🔒 Blocked by: ' + blocker.title;
+      blockedBadge.textContent = 'Blocked by: ' + blocker.title;
       badgeRow.appendChild(blockedBadge);
     }
 
@@ -779,14 +804,14 @@
       var parent = (state.data.items || []).filter(function (i) { return i.id === item.splitFrom; })[0];
       var splitFromBadge = document.createElement('span');
       splitFromBadge.className = 'badge split-badge';
-      splitFromBadge.textContent = '↗ Split from: ' + (parent ? parent.title : 'a goal');
+      splitFromBadge.textContent = 'Split from: ' + (parent ? parent.title : 'a goal');
       badgeRow.appendChild(splitFromBadge);
     }
 
     if (item.splitInto && item.splitInto.length) {
       var splitIntoBadge = document.createElement('span');
       splitIntoBadge.className = 'badge split-badge';
-      splitIntoBadge.textContent = '↘ Split into ' + item.splitInto.length + (item.splitInto.length === 1 ? ' goal' : ' goals');
+      splitIntoBadge.textContent = 'Split into ' + item.splitInto.length + (item.splitInto.length === 1 ? ' goal' : ' goals');
       badgeRow.appendChild(splitIntoBadge);
     }
 
@@ -794,7 +819,7 @@
     if (commentCount) {
       var commentBadge = document.createElement('span');
       commentBadge.className = 'badge comment-badge';
-      commentBadge.textContent = '💬 ' + commentCount;
+      commentBadge.textContent = commentCount + (commentCount === 1 ? ' comment' : ' comments');
       badgeRow.appendChild(commentBadge);
     }
 
@@ -831,7 +856,7 @@
       linkA.href = item.link;
       linkA.target = '_blank';
       linkA.rel = 'noopener';
-      linkA.textContent = '🔗 ' + fileLinkLabel(item.link);
+      linkA.textContent = 'Link: ' + fileLinkLabel(item.link);
       linkP.appendChild(linkA);
       card.appendChild(linkP);
     }
@@ -840,15 +865,15 @@
     actions.className = 'card-actions';
     var historyBtn = document.createElement('button');
     historyBtn.className = 'secondary';
-    historyBtn.textContent = '🕓 History';
+    historyBtn.textContent = 'History';
     historyBtn.title = 'Edit, comment, add sub-tasks, or see everything that\'s happened to this ' + item.type;
     historyBtn.addEventListener('click', function () { openEditModal(item); });
     actions.appendChild(historyBtn);
 
     if (item.targetDate) {
       var calBtn = document.createElement('a');
-      calBtn.className = 'secondary icon-btn';
-      calBtn.textContent = '📅';
+      calBtn.className = 'secondary';
+      calBtn.textContent = 'Calendar';
       calBtn.title = 'Add to my calendar';
       calBtn.href = calendarAddUrl(item);
       calBtn.target = '_blank';
@@ -970,21 +995,77 @@
       var suggestBtn = document.createElement('button');
       suggestBtn.type = 'button';
       suggestBtn.className = 'secondary';
-      suggestBtn.textContent = '🤖 Suggest points';
+      suggestBtn.textContent = 'Suggest points';
       suggestBtn.title = 'Ask Gemini for a 1-5 effort estimate from the current title/notes';
       pointsStatus = document.createElement('span');
       pointsStatus.className = 'card-meta';
       suggestBtn.addEventListener('click', function () {
-        pointsStatus.textContent = '🤔 Estimating difficulty…';
+        pointsStatus.textContent = 'Estimating difficulty…';
         estimateDifficulty(titleInput.value.trim(), textarea.value, function (info, err) {
           if (!info) { pointsStatus.textContent = err ? 'Could not get a suggestion — ' + err : ''; return; }
           pointsInput.value = info.points;
-          pointsStatus.textContent = '🤖 Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '');
+          pointsStatus.textContent = 'Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '');
         });
       });
       suggestRow.appendChild(suggestBtn);
       suggestRow.appendChild(pointsStatus);
       dialog.appendChild(suggestRow);
+    }
+
+    if (item.type === 'goal') {
+      var reviewRow = document.createElement('div');
+      reviewRow.className = 'row';
+      var reviewBtn = document.createElement('button');
+      reviewBtn.type = 'button';
+      reviewBtn.className = 'secondary';
+      reviewBtn.textContent = 'Check owned / scoped / checkable';
+      reviewBtn.title = 'Ask Gemini whether this goal is owned, scoped, and checkable, and suggest a rewrite if it is not';
+      reviewRow.appendChild(reviewBtn);
+      dialog.appendChild(reviewRow);
+
+      var reviewResults = document.createElement('div');
+      reviewResults.className = 'goal-review-results';
+      dialog.appendChild(reviewResults);
+
+      reviewBtn.addEventListener('click', function () {
+        reviewResults.innerHTML = '';
+        var statusP = document.createElement('p');
+        statusP.className = 'card-meta';
+        statusP.textContent = 'Checking against owned / scoped / checkable…';
+        reviewResults.appendChild(statusP);
+        reviewGoal(titleInput.value.trim(), ownerInput.value.trim(), textarea.value, targetInput.value, function (info, err) {
+          reviewResults.innerHTML = '';
+          if (!info) {
+            var errP = document.createElement('p');
+            errP.className = 'card-meta';
+            errP.textContent = err ? 'Could not check this goal — ' + err : '';
+            reviewResults.appendChild(errP);
+            return;
+          }
+          [['Owned', info.owned], ['Scoped', info.scoped], ['Checkable', info.checkable]].forEach(function (pair) {
+            var label = pair[0];
+            var crit = pair[1];
+            var p = document.createElement('p');
+            p.className = 'goal-review-line ' + (crit.pass ? 'pass' : 'fail');
+            p.textContent = label + ': ' + (crit.pass ? 'Pass' : 'Needs work') + (crit.reason ? ' — ' + crit.reason : '');
+            reviewResults.appendChild(p);
+          });
+          if (info.suggestedTitle && info.suggestedTitle !== titleInput.value.trim()) {
+            var suggestWrap = document.createElement('div');
+            suggestWrap.className = 'goal-review-suggestion';
+            var suggestText = document.createElement('p');
+            suggestText.textContent = 'Suggested rewrite: ' + info.suggestedTitle;
+            var applyBtn = document.createElement('button');
+            applyBtn.type = 'button';
+            applyBtn.className = 'secondary';
+            applyBtn.textContent = 'Use this title';
+            applyBtn.addEventListener('click', function () { titleInput.value = info.suggestedTitle; });
+            suggestWrap.appendChild(suggestText);
+            suggestWrap.appendChild(applyBtn);
+            reviewResults.appendChild(suggestWrap);
+          }
+        });
+      });
     }
 
     var dateRow = document.createElement('div');
@@ -1229,7 +1310,7 @@
     var delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'subtask-delete';
-    delBtn.textContent = '✕';
+    delBtn.textContent = 'Delete';
     delBtn.title = 'Delete sub-task';
     delBtn.addEventListener('click', function (e) {
       e.preventDefault();
@@ -1283,7 +1364,7 @@
       entries.push({ at: a.createdAt, text: a.summary });
     });
     commentsFor(item.id).forEach(function (c) {
-      entries.push({ at: c.createdAt, text: '💬 ' + (c.author || 'Unknown') + ': ' + c.text });
+      entries.push({ at: c.createdAt, text: 'Comment from ' + (c.author || 'Unknown') + ': ' + c.text });
     });
     (state.data.subtasks || []).filter(function (s) { return s.goalId === item.id; }).forEach(function (s) {
       if (s.createdAt) entries.push({ at: s.createdAt, text: 'Sub-task added: ' + s.text });
@@ -1498,7 +1579,7 @@
       } else if (key === 'blockedBy') {
         bits.push(after ? 'Marked as blocked' : 'Blocker cleared');
       } else if (key === 'status') {
-        bits.push('Status: ' + (before || '(none)') + ' → ' + after);
+        bits.push('Status: ' + (before || '(none)') + ' to ' + after);
       } else if (key === 'notes') {
         bits.push('Notes updated');
       } else {
@@ -1932,6 +2013,7 @@
     lookupPartPrice: lookupPartPrice,
     sendPurchaseRequestEmail: sendPurchaseRequestEmail,
     estimateDifficulty: estimateDifficulty,
+    reviewGoal: reviewGoal,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every

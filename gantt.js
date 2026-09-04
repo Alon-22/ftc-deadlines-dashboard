@@ -210,7 +210,7 @@
       bar.style.transform = 'translateX(' + (dragState.deltaDays * pixelsPerDay) + 'px)';
       var newStart = addDays(new Date(goal.startDate), dragState.deltaDays);
       var newTarget = addDays(new Date(goal.targetDate), dragState.deltaDays);
-      tip.textContent = formatShortDate(newStart) + ' → ' + formatShortDate(newTarget);
+      tip.textContent = formatShortDate(newStart) + ' to ' + formatShortDate(newTarget);
       tip.classList.add('show');
     });
 
@@ -287,13 +287,13 @@
       var upBtn = document.createElement('button');
       upBtn.type = 'button';
       upBtn.className = 'secondary';
-      upBtn.textContent = '↑';
+      upBtn.textContent = 'Up';
       upBtn.disabled = filtered || i === 0;
       upBtn.addEventListener('click', function () { moveAndSave(sorted, i, i - 1, sheetName); });
       var downBtn = document.createElement('button');
       downBtn.type = 'button';
       downBtn.className = 'secondary';
-      downBtn.textContent = '↓';
+      downBtn.textContent = 'Down';
       downBtn.disabled = filtered || i === sorted.length - 1;
       downBtn.addEventListener('click', function () { moveAndSave(sorted, i, i + 1, sheetName); });
       buttons.appendChild(upBtn);
