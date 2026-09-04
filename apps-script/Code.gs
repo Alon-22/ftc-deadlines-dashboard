@@ -123,6 +123,8 @@ function handleRequest_(e, isPost) {
       result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else if (params.action === 'sendPurchaseRequestEmail') {
       result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
+    } else if (params.action === 'estimateDifficulty') {
+      result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
     } else {
       result = isPost ? handleWrite_(params) : handleRead_(params);
     }
@@ -921,6 +923,65 @@ function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
 
   MailApp.sendEmail({ to: to.join(','), subject: fields.subject, body: fields.body });
   return { ok: true };
+}
+
+// ===== Goal difficulty estimate (Gemini) ====================================
+// A goal's point value defaults to a Gemini-generated guess so Workload can
+// weigh "a few hard goals" against "a pile of easy ones" without every
+// mentor having to hand-score every goal — the estimate is always just a
+// starting point the team can override (see updateGoal's `points` field),
+// never authoritative. Needs a free Gemini API key (aistudio.google.com/apikey)
+// saved as the Script Property GEMINI_API_KEY; with no key configured this
+// fails closed with a clear error so the client can fall back to leaving
+// points blank rather than pretending to have an estimate.
+
+var GEMINI_MODEL_ = 'gemini-2.0-flash';
+
+function estimateDifficulty_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) {
+    return { ok: false, error: 'Invalid or missing passcode' };
+  }
+  var title = (fields.title || '').trim();
+  if (!title) return { ok: false, error: 'Missing title' };
+
+  var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return { ok: false, error: 'Gemini API key not configured' };
+
+  var prompt = 'You are helping an FTC (FIRST Tech Challenge) robotics team estimate how ' +
+      'much effort a task will take, on a 1-5 scale (1 = a few minutes, e.g. "order a part" or ' +
+      '"email the mentor"; 3 = a solid work session, e.g. "wire the drivetrain"; 5 = a major ' +
+      'multi-day effort, e.g. "design and prototype a new intake mechanism"). ' +
+      'Task title: ' + title + (fields.notes ? '\nAdditional detail: ' + fields.notes : '') +
+      '\nRespond with ONLY a JSON object, no other text: {"points": <integer 1-5>, "reasoning": "<one short sentence>"}';
+
+  var resp = UrlFetchApp.fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey),
+      {
+        method: 'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        payload: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 200, responseMimeType: 'application/json' },
+        }),
+      }
+  );
+  if (resp.getResponseCode() >= 300) {
+    return { ok: false, error: 'Gemini request failed (' + resp.getResponseCode() + ')' };
+  }
+
+  try {
+    var body = JSON.parse(resp.getContentText());
+    var text = body.candidates[0].content.parts[0].text;
+    var parsed = JSON.parse(text);
+    var points = Math.max(1, Math.min(5, Math.round(Number(parsed.points))));
+    if (!points) return { ok: false, error: 'Could not parse a point estimate' };
+    return { ok: true, points: points, reasoning: parsed.reasoning || '' };
+  } catch (e) {
+    return { ok: false, error: 'Could not parse Gemini response' };
+  }
 }
 
 // ===== Firestore admin access (service account, bypasses Security Rules) ===

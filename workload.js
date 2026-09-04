@@ -1,6 +1,8 @@
-// workload.js — Workload tab: open (not-Done) goal count per person, so
-// it's easy to spot who's overloaded and who has room. Read-only — no
-// writes here. Talks to the rest of the app only through window.DB.
+// workload.js — Workload tab: open (not-Done) goals per person, weighed by
+// points (1-5 difficulty, auto-suggested at creation, always overridable)
+// rather than raw count — so a person with a few hard goals and a person
+// with a pile of easy ones don't look the same. Read-only — no writes
+// here. Talks to the rest of the app only through window.DB.
 
 (function () {
   'use strict';
@@ -42,6 +44,10 @@
     return groups;
   }
 
+  function pointTotal(goals) {
+    return goals.reduce(function (sum, g) { return sum + (g.points || 0); }, 0);
+  }
+
   function render() {
     var groups = byPerson();
     var names = Object.keys(groups).sort();
@@ -51,7 +57,7 @@
         el.chart.innerHTML = names.length ? '' : '<p class="empty-state">No open goals right now.</p>';
       } else {
         window.DBCharts.renderBarChart(el.chart, names.map(function (n) {
-          return { label: n, value: groups[n].length };
+          return { label: n, value: pointTotal(groups[n]) };
         }));
       }
     }
@@ -68,10 +74,15 @@
     var wrap = document.createElement('div');
     wrap.className = 'workload-person';
 
+    var points = pointTotal(goals);
+    var unscored = goals.filter(function (g) { return !g.points; }).length;
+
     var header = document.createElement('button');
     header.type = 'button';
     header.className = 'workload-person-header';
-    header.textContent = name + ' — ' + goals.length + (goals.length === 1 ? ' open goal' : ' open goals');
+    header.textContent = name + ' — ' + goals.length + (goals.length === 1 ? ' open goal' : ' open goals') +
+      (points ? ' · ' + points + ' pts' : '') +
+      (unscored ? ' (' + unscored + ' unscored)' : '');
     header.addEventListener('click', function () {
       openExpanded = openExpanded === name ? null : name;
       render();

@@ -53,6 +53,11 @@ service cloud.firestore {
     match /teams/{teamId}/comments/{id} {
       allow read, write: if signedInAs(teamId);
     }
+    // Per-goal activity feed (edit/split log entries shown in the goal
+    // modal's History section) — same open collaboration as comments.
+    match /teams/{teamId}/activity/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
     match /teams/{teamId}/engineeringNotebook/{id} {
       allow read, write: if signedInAs(teamId);
     }

@@ -203,6 +203,17 @@ section.group.group-alert h2 {
 .badge.status-red { background: var(--red-bg); color: var(--red); }
 .badge.status-done { background: var(--gray-bg); color: var(--gray); }
 
+.card-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.badge.points-badge { background: var(--yellow-bg); color: var(--yellow); }
+.badge.split-badge { background: var(--gray-bg); color: var(--gray); text-transform: none; letter-spacing: normal; }
+.badge.comment-badge { background: var(--gray-bg); color: var(--gray); text-transform: none; letter-spacing: normal; }
+
 .card-notes {
   margin-top: 8px;
   font-size: 0.9rem;
@@ -218,6 +229,11 @@ section.group.group-alert h2 {
   margin-top: 8px;
   display: flex;
   gap: 8px;
+}
+
+.card-actions .icon-btn {
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .empty-state {
@@ -402,13 +418,49 @@ section.group.group-alert h2 {
 }
 
 /* ===== Tabs ===== */
+/* Two levels: a row of category pills, then only the active category's
+   tabs — the flat 15+-tab bar this replaced had no wrap/overflow
+   indicator at all, so most tabs just silently scrolled off-screen. */
+
+.tab-group-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-group-btn {
+  background: var(--gray-bg);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.tab-group-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
 
 .tab-bar {
   display: flex;
-  gap: 4px;
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+}
+
+.tab-group {
+  display: none;
+  gap: 4px;
+}
+
+.tab-group.active {
+  display: flex;
 }
 
 .tab-btn {
@@ -735,6 +787,19 @@ section.group.group-alert h2 {
   gap: 8px;
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+.todo-subtask-row span {
+  flex: 1;
+}
+
+.subtask-delete {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  padding: 2px 6px;
+  flex-shrink: 0;
 }
 
 .todo-subtask-row input[type="checkbox"] {
@@ -1112,6 +1177,50 @@ section.group.group-alert h2 {
 
 .modal-actions {
   display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ===== Goal modal: History (sub-tasks + comments + activity feed) ===== */
+
+.history-section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.history-section h4 {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.history-section .note-entry {
+  font-size: 0.85rem;
+}
+
+/* ===== Goal modal: split-into-goals sub-form ===== */
+
+.split-form {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.split-form h4 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.split-form textarea {
+  min-height: 50px;
+}
+
+.split-goal-row {
   gap: 8px;
 }
 

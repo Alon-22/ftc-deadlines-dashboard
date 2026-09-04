@@ -69,6 +69,8 @@
     if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
     if (el.addGoalForm) el.addGoalForm.addEventListener('submit', onAddGoal);
     if (el.addTeamGoalForm) el.addTeamGoalForm.addEventListener('submit', onAddTeamGoal);
+    if (el.addGoalForm) wireDifficultyEstimate(el.addGoalForm, el.addGoalPointsStatus);
+    if (el.addTeamGoalForm) wireDifficultyEstimate(el.addTeamGoalForm, el.addTeamGoalPointsStatus);
     if (el.addNoteForm) el.addNoteForm.addEventListener('submit', onAddNote);
     if (el.addGoalOwner) el.addGoalOwner.addEventListener('change', function () { toggleOther(el.addGoalOwner, el.addGoalOwnerOther); });
     if (el.addGoalGroup) el.addGoalGroup.addEventListener('change', function () { toggleOther(el.addGoalGroup, el.addGoalGroupOther); });
@@ -99,6 +101,8 @@
     el.addTeamGoalOwnerOther = document.getElementById('add-team-goal-owner-other');
     el.addTeamGoalGroup = document.getElementById('add-team-goal-group');
     el.addTeamGoalGroupOther = document.getElementById('add-team-goal-group-other');
+    el.addGoalPointsStatus = document.getElementById('add-goal-points-status');
+    el.addTeamGoalPointsStatus = document.getElementById('add-team-goal-points-status');
     el.addNoteForm = document.getElementById('add-note-form');
     el.gate = document.getElementById('gate');
     el.gateInput = document.getElementById('gate-passcode');
@@ -106,6 +110,8 @@
     el.toast = document.getElementById('toast');
     el.tabButtons = Array.prototype.slice.call(document.querySelectorAll('.tab-btn'));
     el.tabPanels = Array.prototype.slice.call(document.querySelectorAll('.tab-panel'));
+    el.tabGroupButtons = Array.prototype.slice.call(document.querySelectorAll('.tab-group-btn'));
+    el.tabGroups = Array.prototype.slice.call(document.querySelectorAll('.tab-bar .tab-group'));
   }
 
   function initTabs() {
@@ -113,13 +119,43 @@
     el.tabButtons.forEach(function (btn) {
       btn.addEventListener('click', function () { showTab(btn.dataset.tab); });
     });
+    el.tabGroupButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        showGroup_(btn.dataset.group);
+        var firstTab = firstTabInGroup_(btn.dataset.group);
+        if (firstTab) showTab(firstTab);
+      });
+    });
     var last = localStorage.getItem('lastTab:' + VIEW);
     showTab(el.tabButtons.some(function (b) { return b.dataset.tab === last; }) ? last : el.tabButtons[0].dataset.tab);
+  }
+
+  // The flat tab bar grew to 15+ items over many sessions, which meant
+  // endless silent horizontal scrolling with no indication anything was
+  // off-screen — these two group the tabs into a handful of categories
+  // (a pill row picks the category, only that category's tabs show) so no
+  // single row ever has more than a few items in it.
+  function groupForTab_(name) {
+    var btn = el.tabButtons.filter(function (b) { return b.dataset.tab === name; })[0];
+    var group = btn && btn.closest('.tab-group');
+    return group && group.dataset.group;
+  }
+
+  function firstTabInGroup_(group) {
+    var groupEl = el.tabGroups.filter(function (g) { return g.dataset.group === group; })[0];
+    var btn = groupEl && groupEl.querySelector('.tab-btn');
+    return btn && btn.dataset.tab;
+  }
+
+  function showGroup_(group) {
+    el.tabGroupButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.group === group); });
+    el.tabGroups.forEach(function (g) { g.classList.toggle('active', g.dataset.group === group); });
   }
 
   function showTab(name) {
     el.tabButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.tab === name); });
     el.tabPanels.forEach(function (panel) { panel.classList.toggle('active', panel.dataset.tab === name); });
+    showGroup_(groupForTab_(name));
     // Gantt, the Kanban board, and the calendar grid all want more width than the card tabs do
     el.main.classList.toggle('wide', name === 'timeline' || name === 'board' || name === 'calendar');
     localStorage.setItem('lastTab:' + VIEW, name);
@@ -275,6 +311,52 @@
       .catch(function (err) { cb(false, String(err)); });
   }
 
+  // Suggests a 1-5 point/difficulty value for a new goal via Gemini — a
+  // starting point only, never written anywhere on its own; the add-goal
+  // forms pre-fill their (always-editable) Points field with this and the
+  // team can freely override it before or after saving.
+  function estimateDifficulty(title, notes, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    fetch(team.webAppUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'estimateDifficulty',
+        team: state.team,
+        view: VIEW,
+        passcode: state.passcode,
+        fields: { title: title, notes: notes || '' },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb({ points: json.points, reasoning: json.reasoning || '' }, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // On leaving the title field of an add-goal form, suggest a points value
+  // via estimateDifficulty — never overwrites a value someone already typed
+  // (same "don't clobber what's there" convention as Budget's link autofill).
+  function wireDifficultyEstimate(form, statusEl) {
+    if (!form.title || !form.points) return;
+    form.title.addEventListener('change', function () {
+      var title = form.title.value.trim();
+      if (statusEl) statusEl.textContent = '';
+      if (!title || form.points.value) return;
+      if (statusEl) statusEl.textContent = '🤔 Estimating difficulty…';
+      estimateDifficulty(title, '', function (info, err) {
+        if (statusEl) statusEl.textContent = '';
+        if (!info) { if (statusEl && err) statusEl.textContent = ''; return; }
+        if (!form.points.value) {
+          form.points.value = info.points;
+          if (statusEl) statusEl.textContent = '🤖 Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '') + ' (edit freely)';
+        }
+      });
+    });
+  }
+
   // Student view has no gate UI — try the cached (often empty) passcode
   // silently first, matching how student reads were always open before.
   // Only fall back to a prompt if that mint is actually rejected (a
@@ -348,6 +430,11 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    unsubscribers.push(teamRef.collection('activity').onSnapshot(function (snap) {
+      ensureData_().activity = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
     unsubscribers.push(teamRef.collection('engineeringNotebook').onSnapshot(function (snap) {
       var entries = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
       entries.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
@@ -402,7 +489,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [] };
     return state.data;
   }
 
@@ -434,6 +521,9 @@
       blockedBy: g.blockedBy || '',
       repeats: g.repeats || 'none',
       priorityOrder: g.priorityOrder == null ? null : g.priorityOrder,
+      points: g.points == null ? null : g.points,
+      splitFrom: g.splitFrom || '',
+      splitInto: g.splitInto || [],
       daysLeft: daysLeft_(targetDate),
       workHoursLeft: g.workHoursLeft == null ? null : g.workHoursLeft,
       isMentorOwned: !!g.isMentorOwned,
@@ -660,12 +750,21 @@
     meta.textContent = metaBits.join(' · ');
     titleWrap.appendChild(meta);
 
+    var badgeRow = document.createElement('div');
+    badgeRow.className = 'card-badge-row';
+
     if (item.status) {
       var badge = document.createElement('span');
       badge.className = 'badge status-' + item.status.toLowerCase().replace(/\s+/g, '-');
       badge.textContent = item.status;
-      titleWrap.appendChild(document.createElement('br'));
-      titleWrap.appendChild(badge);
+      badgeRow.appendChild(badge);
+    }
+
+    if (item.points) {
+      var pointsBadge = document.createElement('span');
+      pointsBadge.className = 'badge points-badge';
+      pointsBadge.textContent = item.points + (item.points === 1 ? ' pt' : ' pts');
+      badgeRow.appendChild(pointsBadge);
     }
 
     var blocker = blockingGoal_(item);
@@ -673,9 +772,33 @@
       var blockedBadge = document.createElement('span');
       blockedBadge.className = 'badge blocked-badge';
       blockedBadge.textContent = '🔒 Blocked by: ' + blocker.title;
-      titleWrap.appendChild(document.createElement('br'));
-      titleWrap.appendChild(blockedBadge);
+      badgeRow.appendChild(blockedBadge);
     }
+
+    if (item.splitFrom) {
+      var parent = (state.data.items || []).filter(function (i) { return i.id === item.splitFrom; })[0];
+      var splitFromBadge = document.createElement('span');
+      splitFromBadge.className = 'badge split-badge';
+      splitFromBadge.textContent = '↗ Split from: ' + (parent ? parent.title : 'a goal');
+      badgeRow.appendChild(splitFromBadge);
+    }
+
+    if (item.splitInto && item.splitInto.length) {
+      var splitIntoBadge = document.createElement('span');
+      splitIntoBadge.className = 'badge split-badge';
+      splitIntoBadge.textContent = '↘ Split into ' + item.splitInto.length + (item.splitInto.length === 1 ? ' goal' : ' goals');
+      badgeRow.appendChild(splitIntoBadge);
+    }
+
+    var commentCount = item.type === 'goal' ? commentsFor(item.id).length : 0;
+    if (commentCount) {
+      var commentBadge = document.createElement('span');
+      commentBadge.className = 'badge comment-badge';
+      commentBadge.textContent = '💬 ' + commentCount;
+      badgeRow.appendChild(commentBadge);
+    }
+
+    if (badgeRow.children.length) titleWrap.appendChild(badgeRow);
 
     top.appendChild(titleWrap);
 
@@ -715,25 +838,18 @@
 
     var actions = document.createElement('div');
     actions.className = 'card-actions';
-    var editBtn = document.createElement('button');
-    editBtn.className = 'secondary';
-    editBtn.textContent = 'Edit';
-    editBtn.addEventListener('click', function () { openEditModal(item); });
-    actions.appendChild(editBtn);
-
-    if (item.type === 'goal') {
-      var commentCount = commentsFor(item.id).length;
-      var commentBtn = document.createElement('button');
-      commentBtn.className = 'secondary';
-      commentBtn.textContent = '💬 ' + (commentCount || 'Comment');
-      commentBtn.addEventListener('click', function () { toggleComments(card, item); });
-      actions.appendChild(commentBtn);
-    }
+    var historyBtn = document.createElement('button');
+    historyBtn.className = 'secondary';
+    historyBtn.textContent = '🕓 History';
+    historyBtn.title = 'Edit, comment, add sub-tasks, or see everything that\'s happened to this ' + item.type;
+    historyBtn.addEventListener('click', function () { openEditModal(item); });
+    actions.appendChild(historyBtn);
 
     if (item.targetDate) {
       var calBtn = document.createElement('a');
-      calBtn.className = 'secondary';
-      calBtn.textContent = '📅 Add to my calendar';
+      calBtn.className = 'secondary icon-btn';
+      calBtn.textContent = '📅';
+      calBtn.title = 'Add to my calendar';
       calBtn.href = calendarAddUrl(item);
       calBtn.target = '_blank';
       calBtn.rel = 'noopener';
@@ -833,6 +949,18 @@
       });
       ownerRow.appendChild(statusSelect);
     }
+
+    var pointsInput;
+    if (item.type === 'goal') {
+      pointsInput = document.createElement('input');
+      pointsInput.type = 'number';
+      pointsInput.min = '1';
+      pointsInput.max = '5';
+      pointsInput.placeholder = 'Points';
+      pointsInput.title = 'Difficulty / effort points (1-5)';
+      pointsInput.value = item.points || '';
+      ownerRow.appendChild(pointsInput);
+    }
     dialog.appendChild(ownerRow);
 
     var dateRow = document.createElement('div');
@@ -927,7 +1055,25 @@
       row.appendChild(deleteBtn);
     }
 
+    if (item.type === 'goal') {
+      var splitBtn = document.createElement('button');
+      splitBtn.type = 'button';
+      splitBtn.className = 'secondary';
+      splitBtn.textContent = 'Split into goals…';
+      splitBtn.addEventListener('click', function () {
+        var existingForm = dialog.querySelector('.split-form');
+        if (existingForm) { existingForm.remove(); return; }
+        // Insert right after the Save/Cancel/Delete row — not at the end of
+        // the dialog — so it appears next to the button that opened it
+        // instead of below the whole History section.
+        dialog.insertBefore(buildSplitForm_(item), row.nextSibling);
+      });
+      row.appendChild(splitBtn);
+    }
+
     dialog.appendChild(row);
+
+    if (item.type === 'goal') dialog.appendChild(buildHistorySection_(item));
 
     saveBtn.addEventListener('click', function () {
       var fields = {
@@ -944,6 +1090,7 @@
         fields.link = linkInput.value.trim();
         fields.blockedBy = blockedBySelect.value;
         fields.repeats = repeatsSelect.value;
+        fields.points = pointsInput.value;
       }
       var action = item.type === 'deadline' ? 'updateDeadline' : 'updateGoal';
       post(action, item.id, fields, function (ok) {
@@ -953,6 +1100,216 @@
 
     document.body.appendChild(overlay);
     titleInput.focus();
+  }
+
+  // ===== Splitting a goal ======================================================
+  // Keeps the "we used to have one goal" trail on both ends: the original
+  // is marked Done with a splitInto list, each new goal gets a splitFrom
+  // pointer, and a reason is required so it always reads as a deliberate
+  // decision, not just a goal quietly vanishing and reappearing as two.
+
+  function buildSplitForm_(item) {
+    var wrap = document.createElement('div');
+    wrap.className = 'split-form';
+
+    var heading = document.createElement('h4');
+    heading.textContent = 'Split "' + item.title + '" into new goals';
+    wrap.appendChild(heading);
+
+    var reasonInput = document.createElement('textarea');
+    reasonInput.placeholder = 'Why are we splitting this goal? (required)';
+    wrap.appendChild(reasonInput);
+
+    var rowsWrap = document.createElement('div');
+    wrap.appendChild(rowsWrap);
+
+    function addGoalRow() {
+      var r = document.createElement('div');
+      r.className = 'row split-goal-row';
+      var t = document.createElement('input');
+      t.type = 'text';
+      t.placeholder = 'New goal title';
+      var o = document.createElement('input');
+      o.type = 'text';
+      o.placeholder = 'Owner(s)';
+      o.value = item.owner || '';
+      r.appendChild(t);
+      r.appendChild(o);
+      rowsWrap.appendChild(r);
+    }
+    addGoalRow();
+    addGoalRow();
+
+    var addRowBtn = document.createElement('button');
+    addRowBtn.type = 'button';
+    addRowBtn.className = 'secondary';
+    addRowBtn.textContent = '+ Add another goal';
+    addRowBtn.addEventListener('click', addGoalRow);
+    wrap.appendChild(addRowBtn);
+
+    var actionsRow = document.createElement('div');
+    actionsRow.className = 'modal-actions';
+    var confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.textContent = 'Split';
+    confirmBtn.addEventListener('click', function () {
+      var reason = reasonInput.value.trim();
+      if (!reason) return toast('A reason for the split is required');
+      var goals = Array.prototype.slice.call(rowsWrap.querySelectorAll('.split-goal-row')).map(function (r) {
+        var inputs = r.querySelectorAll('input');
+        return { title: inputs[0].value.trim(), owner: inputs[1].value.trim() };
+      }).filter(function (g) { return g.title; });
+      if (goals.length < 2) return toast('Enter at least two new goal titles');
+      post('splitGoal', item.id, { reason: reason, goals: goals }, function (ok) {
+        if (ok) closeModal_();
+      });
+    });
+    var cancelSplitBtn = document.createElement('button');
+    cancelSplitBtn.type = 'button';
+    cancelSplitBtn.className = 'secondary';
+    cancelSplitBtn.textContent = 'Cancel';
+    cancelSplitBtn.addEventListener('click', function () { wrap.remove(); });
+    actionsRow.appendChild(confirmBtn);
+    actionsRow.appendChild(cancelSplitBtn);
+    wrap.appendChild(actionsRow);
+
+    return wrap;
+  }
+
+  // ===== Goal modal History section (sub-tasks + comments + activity feed) ===
+
+  function startOfWeekIso_(date) {
+    var d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    var day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function buildSubtaskRow_(s) {
+    var row = document.createElement('label');
+    row.className = 'todo-subtask-row' + (s.done ? ' done' : '');
+
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = s.done;
+    cb.addEventListener('change', function () {
+      post('toggleSubtask', s.id, { done: cb.checked }, function () {});
+    });
+    row.appendChild(cb);
+
+    var span = document.createElement('span');
+    span.textContent = s.text;
+    row.appendChild(span);
+
+    var delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'subtask-delete';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Delete sub-task';
+    delBtn.addEventListener('click', function (e) {
+      e.preventDefault();
+      post('deleteSubtask', s.id, {}, function () {});
+    });
+    row.appendChild(delBtn);
+
+    return row;
+  }
+
+  function buildSubtaskSection_(item) {
+    var wrap = document.createElement('div');
+
+    var list = document.createElement('div');
+    (state.data.subtasks || []).filter(function (s) { return s.goalId === item.id; })
+      .sort(function (a, b) { return (a.createdAt || '').localeCompare(b.createdAt || ''); })
+      .forEach(function (s) { list.appendChild(buildSubtaskRow_(s)); });
+    wrap.appendChild(list);
+
+    var addRow = document.createElement('div');
+    addRow.className = 'todo-add-subtask';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Add a sub-task…';
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary';
+    btn.textContent = 'Add';
+    function submit() {
+      var text = input.value.trim();
+      if (!text) return;
+      post('addSubtask', null, { goalId: item.id, owner: item.owner, weekOf: startOfWeekIso_(new Date()), text: text }, function (ok) {
+        if (ok) input.value = '';
+      });
+    }
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
+    addRow.appendChild(input);
+    addRow.appendChild(btn);
+    wrap.appendChild(addRow);
+
+    return wrap;
+  }
+
+  // Merges edit-activity entries, comments, and sub-task create/complete
+  // events into one chronological read-only feed — "what's happened to
+  // this goal" without hunting across three different UI sections.
+  function buildHistoryFeed_(item) {
+    var entries = [];
+    (state.data.activity || []).filter(function (a) { return a.goalId === item.id; }).forEach(function (a) {
+      entries.push({ at: a.createdAt, text: a.summary });
+    });
+    commentsFor(item.id).forEach(function (c) {
+      entries.push({ at: c.createdAt, text: '💬 ' + (c.author || 'Unknown') + ': ' + c.text });
+    });
+    (state.data.subtasks || []).filter(function (s) { return s.goalId === item.id; }).forEach(function (s) {
+      if (s.createdAt) entries.push({ at: s.createdAt, text: 'Sub-task added: ' + s.text });
+      if (s.done && s.completedAt) entries.push({ at: s.completedAt, text: 'Sub-task completed: ' + s.text });
+    });
+    entries.sort(function (a, b) { return (b.at || '').localeCompare(a.at || ''); });
+    return entries;
+  }
+
+  function buildHistorySection_(item) {
+    var wrap = document.createElement('div');
+    wrap.className = 'history-section';
+
+    var subtasksHeading = document.createElement('h4');
+    subtasksHeading.textContent = 'Sub-tasks';
+    wrap.appendChild(subtasksHeading);
+    wrap.appendChild(buildSubtaskSection_(item));
+
+    var commentsHeading = document.createElement('h4');
+    commentsHeading.textContent = 'Comments';
+    wrap.appendChild(commentsHeading);
+    var commentList = document.createElement('div');
+    renderCommentList(commentList, commentsFor(item.id));
+    wrap.appendChild(commentList);
+    wrap.appendChild(buildAddCommentForm_(item));
+
+    var historyHeading = document.createElement('h4');
+    historyHeading.textContent = 'Activity';
+    wrap.appendChild(historyHeading);
+    var feed = buildHistoryFeed_(item);
+    var feedList = document.createElement('div');
+    if (!feed.length) {
+      feedList.innerHTML = '<p class="empty-state">No activity yet.</p>';
+    } else {
+      feed.forEach(function (entry) {
+        var e = document.createElement('div');
+        e.className = 'note-entry';
+        var meta = document.createElement('div');
+        meta.className = 'note-meta';
+        meta.textContent = entry.at ? new Date(entry.at).toLocaleString() : '';
+        var text = document.createElement('div');
+        text.textContent = entry.text;
+        e.appendChild(meta);
+        e.appendChild(text);
+        feedList.appendChild(e);
+      });
+    }
+    wrap.appendChild(feedList);
+
+    return wrap;
   }
 
   // Returns the blocking goal only while it's still open — once it's Done
@@ -971,17 +1328,8 @@
     return all.filter(function (c) { return c.goalId === goalId; });
   }
 
-  function toggleComments(card, item) {
-    var existing = card.querySelector('.comments-thread');
-    if (existing) { existing.remove(); return; }
-
-    var wrap = document.createElement('div');
-    wrap.className = 'comments-thread';
-
-    var list = document.createElement('div');
-    renderCommentList(list, commentsFor(item.id));
-    wrap.appendChild(list);
-
+  // Small add-comment form reused inside the goal modal's History section.
+  function buildAddCommentForm_(item) {
     var form = document.createElement('div');
     form.className = 'card-actions comments-add';
     var authorInput = document.createElement('input');
@@ -991,6 +1339,7 @@
     textInput.type = 'text';
     textInput.placeholder = 'Add a comment…';
     var sendBtn = document.createElement('button');
+    sendBtn.type = 'button';
     sendBtn.textContent = 'Post';
     sendBtn.addEventListener('click', function () {
       var author = authorInput.value.trim();
@@ -1003,9 +1352,7 @@
     form.appendChild(authorInput);
     form.appendChild(textInput);
     form.appendChild(sendBtn);
-    wrap.appendChild(form);
-
-    card.appendChild(wrap);
+    return form;
   }
 
   function renderCommentList(container, comments) {
@@ -1097,6 +1444,46 @@
     return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
+  // ===== Per-goal activity feed ================================================
+  // A lightweight, best-effort log — never blocks or fails the actual write
+  // it's describing. Shown alongside comments/subtasks in the goal modal's
+  // History section so "what happened to this goal" doesn't require asking
+  // around.
+
+  function logActivity_(goalId, summary) {
+    return teamRef_().collection('activity').add({
+      goalId: goalId,
+      summary: summary,
+      role: VIEW,
+      createdAt: new Date().toISOString(),
+    }).catch(function () { /* best-effort — never surface an activity-log failure as a save error */ });
+  }
+
+  var GOAL_FIELD_LABELS_ = { title: 'Title', owner: 'Owner', status: 'Status', notes: 'Notes', link: 'Link', blockedBy: 'Blocked by', repeats: 'Repeats', points: 'Points', startDate: 'Start date', targetDate: 'Target date' };
+
+  function describeGoalChanges_(existing, patch) {
+    var bits = [];
+    Object.keys(patch).forEach(function (key) {
+      if (key === 'owners') return; // derived from owner — don't double-report
+      var before = existing[key];
+      var after = patch[key];
+      if (before === after) return;
+      var label = GOAL_FIELD_LABELS_[key] || key;
+      if (key === 'startDate' || key === 'targetDate') {
+        bits.push(label + ': ' + (after ? new Date(after).toLocaleDateString() : '(cleared)'));
+      } else if (key === 'blockedBy') {
+        bits.push(after ? 'Marked as blocked' : 'Blocker cleared');
+      } else if (key === 'status') {
+        bits.push('Status: ' + (before || '(none)') + ' → ' + after);
+      } else if (key === 'notes') {
+        bits.push('Notes updated');
+      } else {
+        bits.push(label + ': ' + after);
+      }
+    });
+    return bits.join('; ');
+  }
+
   function post(action, id, fields, cb) {
     var handler = WRITE_HANDLERS[action];
     if (!handler) { toast('Unknown action: ' + action); return cb(false); }
@@ -1115,14 +1502,17 @@
       if ('link' in fields) patch.link = fields.link;
       if ('blockedBy' in fields) patch.blockedBy = fields.blockedBy;
       if ('repeats' in fields) patch.repeats = fields.repeats;
+      if ('points' in fields) patch.points = fields.points === '' || fields.points == null ? null : Number(fields.points);
       if ('startDate' in fields) patch.startDate = fields.startDate ? new Date(fields.startDate).toISOString() : null;
       if ('targetDate' in fields) patch.targetDate = fields.targetDate ? new Date(fields.targetDate).toISOString() : null;
 
       var existing = (state.data.items || []).filter(function (i) { return i.id === id && i.type === 'goal'; })[0];
       var justCompletedRecurring = existing && existing.status !== 'Done' && patch.status === 'Done' &&
         existing.repeats && existing.repeats !== 'none';
+      var changeSummary = existing && describeGoalChanges_(existing, patch);
 
       return teamRef_().collection('goals').doc(id).update(patch).then(function () {
+        if (changeSummary) logActivity_(id, changeSummary);
         if (justCompletedRecurring) return spawnNextRecurrence_(existing);
       });
     },
@@ -1154,6 +1544,49 @@
       return teamRef_().collection('deadlines').doc(id).delete();
     },
 
+    // Splits one goal into several new ones, keeping the paper trail both
+    // directions: the original is marked Done (its work now lives as the
+    // new goals) and gets a splitInto list; each new goal gets a splitFrom
+    // pointer back. fields.goals is [{title, owner}, ...]; fields.reason is
+    // required (checked client-side before this is ever called) so a split
+    // always comes with a "why", not just a silent fork.
+    splitGoal: function (id, fields) {
+      var existing = (state.data.items || []).filter(function (i) { return i.id === id && i.type === 'goal'; })[0];
+      if (!existing) return Promise.reject(new Error('Goal not found'));
+      var goalsColl = teamRef_().collection('goals');
+      var newRefs = fields.goals.map(function () { return goalsColl.doc(); });
+      var batch = db.batch();
+      fields.goals.forEach(function (g, i) {
+        var owners = ownerNames_(g.owner);
+        batch.set(newRefs[i], {
+          title: g.title,
+          owner: g.owner || '',
+          owners: owners,
+          group: existing.group || '',
+          subtype: existing.subtype,
+          status: 'Not started',
+          notes: '',
+          startDate: new Date().toISOString(),
+          targetDate: existing.targetDate || null,
+          priorityOrder: null,
+          points: null,
+          splitFrom: id,
+          isMentorOwned: owners.some(function (n) { return teamMentors.indexOf(n) !== -1; }),
+        });
+      });
+      var newIds = newRefs.map(function (r) { return r.id; });
+      batch.update(goalsColl.doc(id), {
+        status: 'Done',
+        splitInto: newIds,
+        notes: (existing.notes ? existing.notes + '\n\n' : '') + 'Split into ' + newIds.length + ' goals — ' + fields.reason,
+      });
+      return batch.commit().then(function () {
+        var titles = fields.goals.map(function (g) { return g.title; }).join(', ');
+        logActivity_(id, 'Split into: ' + titles + ' — ' + fields.reason);
+        newIds.forEach(function (newId) { logActivity_(newId, 'Split from: ' + existing.title + ' — ' + fields.reason); });
+      });
+    },
+
     addPersonalGoal: function (id, fields) {
       var owners = ownerNames_(fields.owner);
       return teamRef_().collection('goals').add({
@@ -1167,6 +1600,7 @@
         startDate: new Date().toISOString(),
         targetDate: fields.targetDate ? new Date(fields.targetDate).toISOString() : null,
         priorityOrder: null,
+        points: fields.points ? Number(fields.points) : null,
         isMentorOwned: owners.some(function (n) { return teamMentors.indexOf(n) !== -1; }),
       });
     },
@@ -1184,6 +1618,7 @@
         startDate: new Date().toISOString(),
         targetDate: fields.targetDate ? new Date(fields.targetDate).toISOString() : null,
         priorityOrder: null,
+        points: fields.points ? Number(fields.points) : null,
         isMentorOwned: false,
       });
     },
@@ -1386,6 +1821,7 @@
       owner: ownerGroup.owner,
       group: ownerGroup.group,
       targetDate: form.targetDate.value,
+      points: form.points ? form.points.value : '',
     };
     if (!fields.title || !fields.owner) return toast('Goal and your name are required');
     post('addPersonalGoal', null, fields, function (ok) {
@@ -1406,6 +1842,7 @@
       owner: ownerGroup.owner,
       group: ownerGroup.group,
       targetDate: form.targetDate.value,
+      points: form.points ? form.points.value : '',
     };
     if (!fields.title || !fields.owner) return toast('Goal and at least one name are required');
     post('addTeamGoal', null, fields, function (ok) {
@@ -1470,6 +1907,7 @@
     uploadPhoto: uploadPhoto,
     lookupPartPrice: lookupPartPrice,
     sendPurchaseRequestEmail: sendPurchaseRequestEmail,
+    estimateDifficulty: estimateDifficulty,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every
