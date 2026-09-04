@@ -949,21 +949,28 @@ var GEMINI_MODEL_ = 'gemini-flash-lite-latest';
 // Shared call path for both Gemini-backed features below: builds the
 // request, retries once on a 503 ("model overloaded" — confirmed in
 // testing to happen on roughly half of first attempts on the free tier),
-// and parses the model's reply as JSON. thinkingBudget: 0 turns off the
-// model's internal reasoning tokens — without it, those tokens share the
-// same maxOutputTokens budget as the actual answer, and on a longer
-// prompt they could eat the whole budget and truncate the JSON before
-// it's ever written (hit this in testing: a short prompt worked, a
-// longer one silently produced a cut-off, unparseable response). Neither
-// feature here needs multi-step reasoning anyway.
+// and parses the model's reply as JSON.
 function callGemini_(prompt, maxOutputTokens) {
   var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) return { ok: false, error: 'Gemini API key not configured' };
 
   var url = 'https://generativelanguage.googleapis.com/v1beta/models/' + GEMINI_MODEL_ + ':generateContent?key=' + encodeURIComponent(apiKey);
+  var generationConfig = { temperature: 0.2, maxOutputTokens: maxOutputTokens, responseMimeType: 'application/json' };
+  // thinkingBudget: 0 turns off a "thinking" model's internal reasoning
+  // tokens — without it, those tokens share the same maxOutputTokens
+  // budget as the actual answer, and on a longer prompt they could eat
+  // the whole budget and truncate the JSON before it's ever written (hit
+  // this in testing on gemini-flash-latest: a short prompt worked, a
+  // longer one silently produced a cut-off, unparseable response). The
+  // 'lite' tier has no thinking step to disable in the first place —
+  // sending this field to it is a 400 (confirmed in testing) — so only
+  // send it to models that might actually be doing that reasoning.
+  if (GEMINI_MODEL_.indexOf('lite') === -1) {
+    generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
   var payload = JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.2, maxOutputTokens: maxOutputTokens, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: generationConfig,
   });
   var options = { method: 'post', contentType: 'application/json', muteHttpExceptions: true, payload: payload };
 
