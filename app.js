@@ -963,6 +963,30 @@
     }
     dialog.appendChild(ownerRow);
 
+    var pointsStatus;
+    if (item.type === 'goal') {
+      var suggestRow = document.createElement('div');
+      suggestRow.className = 'row';
+      var suggestBtn = document.createElement('button');
+      suggestBtn.type = 'button';
+      suggestBtn.className = 'secondary';
+      suggestBtn.textContent = '🤖 Suggest points';
+      suggestBtn.title = 'Ask Gemini for a 1-5 effort estimate from the current title/notes';
+      pointsStatus = document.createElement('span');
+      pointsStatus.className = 'card-meta';
+      suggestBtn.addEventListener('click', function () {
+        pointsStatus.textContent = '🤔 Estimating difficulty…';
+        estimateDifficulty(titleInput.value.trim(), textarea.value, function (info, err) {
+          if (!info) { pointsStatus.textContent = err ? 'Could not get a suggestion — ' + err : ''; return; }
+          pointsInput.value = info.points;
+          pointsStatus.textContent = '🤖 Suggested ' + info.points + ' pts' + (info.reasoning ? ' — ' + info.reasoning : '');
+        });
+      });
+      suggestRow.appendChild(suggestBtn);
+      suggestRow.appendChild(pointsStatus);
+      dialog.appendChild(suggestRow);
+    }
+
     var dateRow = document.createElement('div');
     dateRow.className = 'row';
     var startInput = document.createElement('input');
