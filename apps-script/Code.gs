@@ -935,7 +935,12 @@ function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
 // fails closed with a clear error so the client can fall back to leaving
 // points blank rather than pretending to have an estimate.
 
-var GEMINI_MODEL_ = 'gemini-2.0-flash';
+// A pinned version number goes stale as Google retires old models (this
+// already happened once — 'gemini-2.0-flash' 404s as of Sep 2026) — the
+// '-latest' alias always resolves to Google's current low-cost fast model
+// instead, so this endpoint doesn't need a maintenance visit every time a
+// generation ships.
+var GEMINI_MODEL_ = 'gemini-flash-latest';
 
 function estimateDifficulty_(teamKey, view, passcode, fields) {
   var team = TEAMS[teamKey];
