@@ -90,6 +90,7 @@
     el.teamGoalsList = document.getElementById('team-goals-list');
     el.personalGoalsList = document.getElementById('personal-goals-list');
     el.mentorNotesList = document.getElementById('mentor-notes-list');
+    el.pendingDeletionList = document.getElementById('pending-deletion-list');
     el.addDeadlineForm = document.getElementById('add-deadline-form');
     el.addGoalForm = document.getElementById('add-goal-form');
     el.addGoalOwner = document.getElementById('add-goal-owner');
@@ -514,13 +515,21 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [], pendingDeletionItems: [] };
     return state.data;
   }
 
   function recomputeAndRender() {
     var data = ensureData_();
-    data.items = latestGoals.concat(latestDeadlines);
+    var allGoals = latestGoals.concat(latestDeadlines);
+    // A goal marked for deletion is pulled out of every normal view (board,
+    // gantt, calendar, to-do, workload...) the instant it's requested, not
+    // just once a mentor acts on it — "moved away as an option" means it
+    // shouldn't keep showing up as something to work on while the request
+    // sits unresolved. It only reappears in the mentor-only review list
+    // below, which shows regardless of view.
+    data.items = allGoals.filter(function (i) { return !i.pendingDeletion; });
+    data.pendingDeletionItems = allGoals.filter(function (i) { return i.pendingDeletion; });
     data.generatedAt = new Date().toISOString();
     render();
     dataListeners.forEach(function (fn) { fn(data); });
@@ -549,6 +558,9 @@
       points: g.points == null ? null : g.points,
       splitFrom: g.splitFrom || '',
       splitInto: g.splitInto || [],
+      pendingDeletion: !!g.pendingDeletion,
+      deletionRequestedBy: g.deletionRequestedBy || '',
+      deletionRequestedAt: g.deletionRequestedAt || null,
       daysLeft: daysLeft_(targetDate),
       workHoursLeft: g.workHoursLeft == null ? null : g.workHoursLeft,
       isMentorOwned: !!g.isMentorOwned,
@@ -631,7 +643,46 @@
     if (el.personalGoalsList) renderList(el.personalGoalsList, personalGoals, 'No personal goals yet.');
 
     if (el.mentorNotesList) renderNotes(el.mentorNotesList, state.data.mentorNotes || []);
+    if (el.pendingDeletionList) renderPendingDeletions(el.pendingDeletionList, state.data.pendingDeletionItems || []);
     populateAddGoalOptions(items);
+  }
+
+  // Mentor-only review queue for goals a student marked for deletion —
+  // reuses the normal card so it still shows status/points/etc, just with
+  // Approve/Deny swapped in for the usual actions.
+  function renderPendingDeletions(container, items) {
+    container.innerHTML = '';
+    if (!items.length) {
+      container.innerHTML = '<p class="empty-state">No pending deletion requests.</p>';
+      return;
+    }
+    items.forEach(function (item) {
+      var card = buildCard(item);
+      var requestedMeta = document.createElement('p');
+      requestedMeta.className = 'card-notes';
+      requestedMeta.textContent = 'Requested from the ' + (item.deletionRequestedBy || 'student') + ' view' +
+        (item.deletionRequestedAt ? ' on ' + new Date(item.deletionRequestedAt).toLocaleDateString() : '');
+      var actions = card.querySelector('.card-actions');
+      card.insertBefore(requestedMeta, actions);
+
+      var approveBtn = document.createElement('button');
+      approveBtn.type = 'button';
+      approveBtn.textContent = 'Approve deletion';
+      approveBtn.addEventListener('click', function () {
+        if (!window.confirm('Permanently delete "' + item.title + '"? This can\'t be undone.')) return;
+        post('approveDeleteGoal', item.id, {}, function () {});
+      });
+      var denyBtn = document.createElement('button');
+      denyBtn.type = 'button';
+      denyBtn.className = 'secondary';
+      denyBtn.textContent = 'Deny (restore)';
+      denyBtn.addEventListener('click', function () {
+        post('denyDeleteGoal', item.id, {}, function () {});
+      });
+      actions.appendChild(approveBtn);
+      actions.appendChild(denyBtn);
+      container.appendChild(card);
+    });
   }
 
   // Dropdowns for the "add a new goal" forms are built from names/subteams
@@ -1160,6 +1211,25 @@
       row.appendChild(deleteBtn);
     }
 
+    // Students can't delete outright, but they can flag a goal for a mentor
+    // to remove — it disappears from every normal view the moment this is
+    // clicked (see recomputeAndRender), so it stops being something anyone
+    // works on while the request sits unresolved.
+    if (VIEW === 'student' && item.type === 'goal' && !item.pendingDeletion) {
+      var requestDeleteBtn = document.createElement('button');
+      requestDeleteBtn.type = 'button';
+      requestDeleteBtn.className = 'secondary';
+      requestDeleteBtn.textContent = 'Mark for deletion';
+      requestDeleteBtn.title = 'Sets this goal aside until a mentor approves or denies removing it';
+      requestDeleteBtn.addEventListener('click', function () {
+        if (!window.confirm('Mark "' + item.title + '" for deletion? It will be set aside until a mentor approves or denies it.')) return;
+        post('requestDeleteGoal', item.id, {}, function (ok) {
+          if (ok) closeModal_();
+        });
+      });
+      row.appendChild(requestDeleteBtn);
+    }
+
     if (item.type === 'goal') {
       var splitBtn = document.createElement('button');
       splitBtn.type = 'button';
@@ -1647,6 +1717,38 @@
 
     deleteDeadline: function (id) {
       return teamRef_().collection('deadlines').doc(id).delete();
+    },
+
+    // Anyone can request a goal be deleted, but only a mentor can actually
+    // remove it — this just flags it. recomputeAndRender() pulls a flagged
+    // goal out of every normal view the instant this is set, so it stops
+    // showing up as something to act on while the request is pending.
+    requestDeleteGoal: function (id) {
+      return teamRef_().collection('goals').doc(id).update({
+        pendingDeletion: true,
+        deletionRequestedBy: VIEW,
+        deletionRequestedAt: new Date().toISOString(),
+      }).then(function () {
+        logActivity_(id, 'Marked for deletion (awaiting mentor approval)');
+      });
+    },
+
+    // Approving a deletion request actually removes the goal — mentor-only,
+    // gated in the UI the same way the existing instant-Delete button is.
+    approveDeleteGoal: function (id) {
+      return teamRef_().collection('goals').doc(id).delete();
+    },
+
+    // Denying a request just clears the flag — the goal falls straight back
+    // into its normal views with everything else about it untouched.
+    denyDeleteGoal: function (id) {
+      return teamRef_().collection('goals').doc(id).update({
+        pendingDeletion: false,
+        deletionRequestedBy: '',
+        deletionRequestedAt: null,
+      }).then(function () {
+        logActivity_(id, 'Deletion request denied — restored');
+      });
     },
 
     // Splits one goal into several new ones, keeping the paper trail both
