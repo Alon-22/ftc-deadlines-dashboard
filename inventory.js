@@ -35,10 +35,12 @@
 
   function renderSummary() {
     var totalQty = inventory.reduce(function (sum, i) { return sum + (i.quantity || 0); }, 0);
+    var totalOnOrder = inventory.reduce(function (sum, i) { return sum + (i.onOrder || 0); }, 0);
     el.summary.innerHTML = '';
     var p = document.createElement('p');
     p.className = 'card-meta';
-    p.textContent = inventory.length + (inventory.length === 1 ? ' item' : ' items') + ' tracked, ' + totalQty + ' total on hand';
+    p.textContent = inventory.length + (inventory.length === 1 ? ' item' : ' items') + ' tracked, ' +
+      totalQty + ' total on hand' + (totalOnOrder ? ', ' + totalOnOrder + ' on order' : '');
     el.summary.appendChild(p);
   }
 
@@ -64,10 +66,16 @@
     var qtyBadge = document.createElement('span');
     qtyBadge.className = 'badge ' + (item.quantity > 0 ? 'status-green' : 'status-red');
     qtyBadge.textContent = 'Qty: ' + (item.quantity || 0);
+    header.appendChild(qtyBadge);
+    if (item.onOrder > 0) {
+      var onOrderBadge = document.createElement('span');
+      onOrderBadge.className = 'badge status-yellow';
+      onOrderBadge.textContent = item.onOrder + ' on order';
+      header.appendChild(onOrderBadge);
+    }
     var titleSpan = document.createElement('span');
     titleSpan.className = 'checklist-item-title';
     titleSpan.textContent = item.name + (item.location ? ' — ' + item.location : '');
-    header.appendChild(qtyBadge);
     header.appendChild(titleSpan);
     header.addEventListener('click', function () {
       expanded = expanded === item.id ? null : item.id;
@@ -89,12 +97,24 @@
     var quantityInput = document.createElement('input');
     quantityInput.type = 'number';
     quantityInput.min = '0';
-    quantityInput.placeholder = 'Quantity';
+    quantityInput.placeholder = 'Quantity on hand';
+    quantityInput.title = 'On hand';
     quantityInput.value = item.quantity || 0;
     quantityInput.addEventListener('change', function () {
       DB.post('updateInventoryItem', item.id, { quantity: quantityInput.value }, function () {});
     });
     row1.appendChild(quantityInput);
+
+    var onOrderInput = document.createElement('input');
+    onOrderInput.type = 'number';
+    onOrderInput.min = '0';
+    onOrderInput.placeholder = 'Quantity on order';
+    onOrderInput.title = 'On order (purchased, not yet arrived)';
+    onOrderInput.value = item.onOrder || 0;
+    onOrderInput.addEventListener('change', function () {
+      DB.post('updateInventoryItem', item.id, { onOrder: onOrderInput.value }, function () {});
+    });
+    row1.appendChild(onOrderInput);
 
     var locationInput = document.createElement('input');
     locationInput.type = 'text';

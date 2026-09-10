@@ -1666,28 +1666,30 @@
     return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
-  // Folds a received quantity into the shared inventory pool — an exact
-  // (case-insensitive) name match gets its quantity bumped; anything else
-  // becomes a brand new entry with an empty location for a mentor to fill
-  // in. Deliberately exact-only here (unlike the fuzzy warning shown while
+  // Adjusts one inventory field by a signed delta for a name — an exact
+  // (case-insensitive) match gets that field bumped; anything else becomes
+  // a brand new entry with an empty location for a mentor to fill in.
+  // Deliberately exact-only here (unlike the fuzzy warning shown while
   // adding a new RFP part) so two differently-named parts never silently
-  // get merged into one inventory line.
-  function addToInventory_(name, qty) {
+  // get merged into one inventory line. `field` is 'quantity' (on hand,
+  // credited once a part is actually Received) or 'onOrder' (purchased but
+  // not yet arrived, credited the moment an order is marked placed and
+  // debited back off — moving into 'quantity' instead — once it arrives).
+  function adjustInventory_(name, field, delta) {
     var trimmed = (name || '').trim();
-    if (!trimmed) return Promise.resolve();
+    if (!trimmed || !delta) return Promise.resolve();
     var normalized = trimmed.toLowerCase();
     return db.collection('inventory').where('nameLower', '==', normalized).limit(1).get().then(function (snap) {
       if (!snap.empty) {
         var doc = snap.docs[0];
-        return doc.ref.update({ quantity: (doc.data().quantity || 0) + qty, lastUpdated: new Date().toISOString() });
+        var patch = { lastUpdated: new Date().toISOString() };
+        patch[field] = Math.max(0, (doc.data()[field] || 0) + delta);
+        return doc.ref.update(patch);
       }
-      return db.collection('inventory').add({
-        name: trimmed,
-        nameLower: normalized,
-        quantity: qty,
-        location: '',
-        lastUpdated: new Date().toISOString(),
-      });
+      if (delta <= 0) return Promise.resolve(); // nothing to create for a pure decrement with no existing row
+      var newDoc = { name: trimmed, nameLower: normalized, quantity: 0, onOrder: 0, location: '', lastUpdated: new Date().toISOString() };
+      newDoc[field] = delta;
+      return db.collection('inventory').add(newDoc);
     });
   }
 
@@ -2143,6 +2145,14 @@
       });
       return batch.commit().then(function () {
         var orderedParts = (state.data.parts || []).filter(function (p) { return partIds.indexOf(p.id) !== -1; });
+        // Visible in shared inventory right away as "on order" — not
+        // on-hand stock yet, but enough for another team to see it's
+        // already been bought before ordering more of the same thing.
+        // receivePart moves each part's qty from here into on-hand once it
+        // actually arrives. Fire-and-forget like the sheet generation below
+        // — the order/part status writes above already succeeded, so a
+        // flaky inventory write shouldn't look like the whole action failed.
+        orderedParts.forEach(function (p) { adjustInventory_(p.item, 'onOrder', Number(p.qty) || 1).catch(function () {}); });
         var teamLabel = (teamConfig() || {}).label || state.team;
         createOrderSheet(order.vendor, orderedParts, order.shippingCost, teamLabel, function (result) {
           if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
@@ -2151,16 +2161,20 @@
     },
 
     // Marks one part in an approved order Received, folds its quantity into
-    // the shared inventory pool (matched by name — an exact match gets its
-    // quantity bumped, otherwise a new inventory entry is created), and —
-    // once every part sharing this order's id is Received — marks the whole
-    // order Received too, so "did this cart fully arrive" is one yes/no
-    // instead of checking each part by hand.
+    // the shared inventory pool's on-hand count (matched by name — an
+    // exact match gets it bumped, otherwise a new inventory entry is
+    // created) and moves that same quantity off the onOrder count it was
+    // credited to when the order was marked placed, and — once every part
+    // sharing this order's id is Received — marks the whole order Received
+    // too, so "did this cart fully arrive" is one yes/no instead of
+    // checking each part by hand.
     receivePart: function (id) {
       var part = (state.data.parts || []).filter(function (p) { return p.id === id; })[0];
       if (!part) return Promise.reject(new Error('Part not found'));
+      var qty = Number(part.qty) || 1;
       return teamRef_().collection('parts').doc(id).update({ status: 'Received', receivedAt: new Date().toISOString() })
-        .then(function () { return addToInventory_(part.item, Number(part.qty) || 1); })
+        .then(function () { return adjustInventory_(part.item, 'quantity', qty); })
+        .then(function () { return adjustInventory_(part.item, 'onOrder', -qty); })
         .then(function () {
           if (!part.orderId) return;
           var siblings = (state.data.parts || []).filter(function (p) { return p.orderId === part.orderId; });
@@ -2181,6 +2195,7 @@
         name: name,
         nameLower: name.toLowerCase(),
         quantity: Number(fields.quantity) || 0,
+        onOrder: Number(fields.onOrder) || 0,
         location: fields.location || '',
         lastUpdated: new Date().toISOString(),
       });
@@ -2190,6 +2205,7 @@
       var patch = { lastUpdated: new Date().toISOString() };
       if ('location' in fields) patch.location = fields.location;
       if ('quantity' in fields) patch.quantity = Number(fields.quantity) || 0;
+      if ('onOrder' in fields) patch.onOrder = Number(fields.onOrder) || 0;
       if ('name' in fields) { patch.name = fields.name; patch.nameLower = (fields.name || '').trim().toLowerCase(); }
       return db.collection('inventory').doc(id).update(patch);
     },

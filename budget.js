@@ -711,21 +711,25 @@
   }
 
   // Warns while adding a new RFP part if something with a similar name is
-  // already sitting in shared inventory with stock on hand — a fuzzy
-  // (substring, either direction) check, unlike the exact match used when
-  // folding a received part into inventory, since this is just a "maybe
-  // check first" nudge, not something that merges records.
+  // already sitting in shared inventory — on hand OR already on order — a
+  // fuzzy (substring, either direction) check, unlike the exact match used
+  // when folding a received part into inventory, since this is just a
+  // "maybe check first" nudge, not something that merges records. Catching
+  // "already on order" (not just "already on hand") is the actual point —
+  // it's the case where a duplicate purchase is still preventable.
   function wireInventoryCheck(itemInput, statusEl) {
     if (!itemInput || !statusEl) return;
     itemInput.addEventListener('input', function () {
       var q = itemInput.value.trim().toLowerCase();
       if (q.length < 3) { statusEl.textContent = ''; return; }
       var match = inventory.filter(function (i) {
-        return (i.quantity || 0) > 0 && i.nameLower && (i.nameLower.indexOf(q) !== -1 || q.indexOf(i.nameLower) !== -1);
+        return ((i.quantity || 0) > 0 || (i.onOrder || 0) > 0) && i.nameLower && (i.nameLower.indexOf(q) !== -1 || q.indexOf(i.nameLower) !== -1);
       })[0];
-      statusEl.textContent = match
-        ? 'Already have ' + match.quantity + ' of "' + match.name + '"' + (match.location ? ' in ' + match.location : '') + ' — check before ordering more.'
-        : '';
+      if (!match) { statusEl.textContent = ''; return; }
+      var bits = [];
+      if (match.quantity) bits.push(match.quantity + ' on hand' + (match.location ? ' in ' + match.location : ''));
+      if (match.onOrder) bits.push(match.onOrder + ' already on order');
+      statusEl.textContent = 'Already have "' + match.name + '" — ' + bits.join(', ') + '. Check before ordering more.';
     });
   }
 

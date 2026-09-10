@@ -45,6 +45,7 @@
   </div>
   <div class="tab-group" data-group="team">
     <button class="tab-btn" data-tab="budget">Budget</button>
+    <button class="tab-btn" data-tab="orders">Orders</button>
     <button class="tab-btn" data-tab="inventory">Inventory</button>
   </div>
   <div class="tab-group" data-group="reports">
@@ -295,16 +296,19 @@
       <div id="budget-request-list"></div>
     </section>
     <section class="group">
+      <div id="budget-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="orders">
+    <section class="group">
       <h2>Awaiting mentor approval</h2>
       <p class="card-meta">Carts you've requested approval for — they'll move down to Orders once a mentor signs off.</p>
       <div id="budget-pending-orders-list"></div>
     </section>
     <section class="group">
-      <div id="budget-list"></div>
-    </section>
-    <section class="group">
       <h2>Orders</h2>
-      <p class="card-meta">Approved carts — mark parts received as they arrive to keep shared inventory accurate.</p>
+      <p class="card-meta">Approved carts — mark parts as ordered once you've actually placed the purchase, then received as they arrive to keep shared inventory accurate.</p>
       <div id="budget-orders-list"></div>
     </section>
   </div>
