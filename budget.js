@@ -545,7 +545,7 @@
     approveBtn.type = 'button';
     approveBtn.textContent = 'Approve order';
     approveBtn.addEventListener('click', function () {
-      if (!window.confirm('Approve this order from ' + order.vendor + '? This marks the parts Ordered and creates the paper-trail sheet.')) return;
+      if (!window.confirm('Approve this order from ' + order.vendor + '? It\'ll move to Orders, where anyone can mark it as ordered once it\'s actually been purchased.')) return;
       DB.post('approveOrder', order.id, {}, function () {});
     });
     var denyBtn = document.createElement('button');
@@ -562,10 +562,19 @@
     return box;
   }
 
-  // ===== Orders (approved carts — validate what's actually arrived) =========
+  // ===== Orders (approved carts — mark as placed, then validate what's =====
+  // actually arrived) ==========================================================
+  // Three stages share this one list: Approved (a mentor signed off, but no
+  // one's actually bought it yet — its parts are still sitting wherever they
+  // were, so they're looked up by the order's own partIds, same as the
+  // pending-approval card does), Ordered (parts are now linked back via
+  // their own orderId, so receiving can be tracked part by part), Received
+  // (done). Visible to both views — placing an order and receiving it are
+  // ordinary team bookkeeping, not a mentor-only permission decision the way
+  // approving the spend is.
 
   function renderOrders() {
-    var active = orders.filter(function (o) { return o.status === 'Ordered' || o.status === 'Received'; })
+    var active = orders.filter(function (o) { return o.status === 'Approved' || o.status === 'Ordered' || o.status === 'Received'; })
       .sort(function (a, b) { return (b.approvedAt || '').localeCompare(a.approvedAt || ''); });
     el.ordersList.innerHTML = '';
     if (!active.length) {
@@ -576,7 +585,10 @@
   }
 
   function buildOrderCard(order) {
-    var orderParts = parts.filter(function (p) { return p.orderId === order.id; });
+    var isApproved = order.status === 'Approved';
+    var orderParts = isApproved
+      ? parts.filter(function (p) { return (order.partIds || []).indexOf(p.id) !== -1; })
+      : parts.filter(function (p) { return p.orderId === order.id; });
     var box = document.createElement('div');
     box.className = 'checklist-item rfp-cart';
 
@@ -584,9 +596,13 @@
     header.className = 'checklist-item-header';
     var titleSpan = document.createElement('span');
     titleSpan.className = 'checklist-item-title';
-    var receivedCount = orderParts.filter(function (p) { return p.status === 'Received'; }).length;
-    titleSpan.textContent = order.vendor + ' — ' + receivedCount + ' of ' + orderParts.length + ' received' +
-      (order.status === 'Received' ? ' (complete)' : '');
+    if (isApproved) {
+      titleSpan.textContent = order.vendor + ' — approved, not yet ordered (' + orderParts.length + (orderParts.length === 1 ? ' item' : ' items') + ')';
+    } else {
+      var receivedCount = orderParts.filter(function (p) { return p.status === 'Received'; }).length;
+      titleSpan.textContent = order.vendor + ' — ' + receivedCount + ' of ' + orderParts.length + ' received' +
+        (order.status === 'Received' ? ' (complete)' : '');
+    }
     header.appendChild(titleSpan);
     box.appendChild(header);
 
@@ -599,24 +615,41 @@
       nameSpan.className = 'rfp-cart-item-name';
       nameSpan.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0);
       li.appendChild(nameSpan);
-      if (p.status === 'Received') {
-        var doneSpan = document.createElement('span');
-        doneSpan.textContent = 'Received';
-        li.appendChild(doneSpan);
-      } else {
-        var receiveBtn = document.createElement('button');
-        receiveBtn.type = 'button';
-        receiveBtn.className = 'secondary';
-        receiveBtn.textContent = 'Mark received';
-        receiveBtn.title = 'Adds this part\'s quantity to shared inventory';
-        receiveBtn.addEventListener('click', function () {
-          DB.post('receivePart', p.id, {}, function () {});
-        });
-        li.appendChild(receiveBtn);
+      if (!isApproved) {
+        if (p.status === 'Received') {
+          var doneSpan = document.createElement('span');
+          doneSpan.textContent = 'Received';
+          li.appendChild(doneSpan);
+        } else {
+          var receiveBtn = document.createElement('button');
+          receiveBtn.type = 'button';
+          receiveBtn.className = 'secondary';
+          receiveBtn.textContent = 'Mark received';
+          receiveBtn.title = 'Adds this part\'s quantity to shared inventory';
+          receiveBtn.addEventListener('click', function () {
+            DB.post('receivePart', p.id, {}, function () {});
+          });
+          li.appendChild(receiveBtn);
+        }
       }
       itemList.appendChild(li);
     });
     box.appendChild(itemList);
+
+    if (isApproved) {
+      var actions = document.createElement('div');
+      actions.className = 'card-actions';
+      var placedBtn = document.createElement('button');
+      placedBtn.type = 'button';
+      placedBtn.textContent = 'Mark as ordered';
+      placedBtn.title = 'Once you\'ve actually placed this order with the vendor';
+      placedBtn.addEventListener('click', function () {
+        if (!window.confirm('Mark this ' + order.vendor + ' order as placed? This marks the parts Ordered and creates the paper-trail sheet.')) return;
+        DB.post('markOrderPlaced', order.id, {}, function () {});
+      });
+      actions.appendChild(placedBtn);
+      box.appendChild(actions);
+    }
 
     if (order.sheetUrl) {
       var linkA = document.createElement('a');

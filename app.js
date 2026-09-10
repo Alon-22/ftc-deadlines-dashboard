@@ -312,10 +312,10 @@
       .catch(function (err) { cb(false, String(err)); });
   }
 
-  // Asks Code.gs to create the paper-trail sheet tab for a mentor-approved
-  // order — see WRITE_HANDLERS.approveOrder, which calls this right after
-  // the approval itself is already committed, so a failure here never
-  // blocks the approval or leaves parts in a half-updated state.
+  // Asks Code.gs to create the paper-trail sheet tab once an order is
+  // actually placed — see WRITE_HANDLERS.markOrderPlaced, which calls this
+  // right after that status change is already committed, so a failure here
+  // never blocks the write or leaves parts in a half-updated state.
   function createOrderSheet(vendor, parts, shippingCost, teamLabel, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
@@ -2096,20 +2096,36 @@
       });
     },
 
-    // Mentor-only in the UI (same pattern as goal-deletion approval) — marks
-    // every part in the cart Ordered, linked back to this order (so "did we
-    // get everything from this cart" has something to check against), then
-    // asks Code.gs to create the paper-trail sheet tab. That call is
-    // fire-and-forget: if it fails, the order is still correctly approved
-    // and parts are still correctly marked Ordered — a flaky Sheets API
-    // call should never block the actual approval.
+    // Mentor-only in the UI (same pattern as goal-deletion approval) — just
+    // the sign-off. Approving is a budget/permission decision, not proof the
+    // purchase has actually been placed with the vendor yet (that's often a
+    // separate person, sometimes hours or days later), so this deliberately
+    // does NOT touch the parts or generate the paper-trail sheet — see
+    // markOrderPlaced for that, once someone's actually bought it.
     approveOrder: function (id) {
+      return teamRef_().collection('orders').doc(id).update({ status: 'Approved', approvedAt: new Date().toISOString() });
+    },
+
+    // Denying just removes the request — nothing else was touched yet, so
+    // there's nothing to undo; the parts are still sitting in Wishlist.
+    denyOrder: function (id) {
+      return teamRef_().collection('orders').doc(id).delete();
+    },
+
+    // The actual "I just bought this" step, for an already-Approved order —
+    // marks every part in the cart Ordered, linked back to this order (so
+    // "did we get everything from this cart" has something to check
+    // against), then asks Code.gs to create the paper-trail sheet tab. That
+    // call is fire-and-forget: if it fails, the order is still correctly
+    // marked Ordered and parts are still correctly updated — a flaky Sheets
+    // API call should never block the write itself.
+    markOrderPlaced: function (id) {
       var order = (state.data.orders || []).filter(function (o) { return o.id === id; })[0];
       if (!order) return Promise.reject(new Error('Order not found'));
       var batch = db.batch();
       var ordersColl = teamRef_().collection('orders');
       var partsColl = teamRef_().collection('parts');
-      batch.update(ordersColl.doc(id), { status: 'Ordered', approvedAt: new Date().toISOString() });
+      batch.update(ordersColl.doc(id), { status: 'Ordered', orderedAt: new Date().toISOString() });
       order.partIds.forEach(function (partId) {
         batch.update(partsColl.doc(partId), { status: 'Ordered', orderId: id });
       });
@@ -2120,12 +2136,6 @@
           if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
         });
       });
-    },
-
-    // Denying just removes the request — nothing else was touched yet, so
-    // there's nothing to undo; the parts are still sitting in Wishlist.
-    denyOrder: function (id) {
-      return teamRef_().collection('orders').doc(id).delete();
     },
 
     // Marks one part in an approved order Received, folds its quantity into
