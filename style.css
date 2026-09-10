@@ -1317,6 +1317,25 @@ section.group.group-alert h2 {
   font-size: 0.8rem;
 }
 
+.rfp-cart-shipping-row {
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px 8px 30px;
+  font-size: 0.85rem;
+}
+
+.rfp-cart-shipping-row input {
+  width: 80px;
+  font-size: 0.85rem;
+  padding: 2px 4px;
+}
+
+.rfp-cart-grand-total {
+  font-weight: 600;
+  color: var(--text);
+  margin-left: auto;
+}
+
 /* ===== "Paste a link" lookup card ===== */
 
 .lookup-card {

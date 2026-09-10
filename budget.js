@@ -17,14 +17,21 @@
     form: document.getElementById('add-part-form'),
     formStatus: document.getElementById('add-part-lookup-status'),
     requestList: document.getElementById('budget-request-list'), // mentor.html only
+    pendingOrdersList: document.getElementById('budget-pending-orders-list'), // mentor.html only
+    ordersList: document.getElementById('budget-orders-list'),
+    inventoryMatch: document.getElementById('add-part-inventory-match'),
   };
   if (!el.list && !el.form) return; // no Budget tab on this page
 
   var parts = [];
+  var orders = [];
+  var inventory = [];
   var expanded = null;
 
   DB.onData(function (data) {
     parts = data.parts || [];
+    orders = data.orders || [];
+    inventory = data.inventory || [];
     render();
   });
 
@@ -206,6 +213,8 @@
     if (el.summary) renderSummary();
     if (el.list) renderList();
     if (el.requestList) renderRequestSection();
+    if (el.pendingOrdersList) renderPendingOrders();
+    if (el.ordersList) renderOrders();
   }
 
   function renderSummary() {
@@ -344,6 +353,32 @@
     });
     box.appendChild(itemList);
 
+    // Shipping wasn't tracked anywhere before, which made a cart's real
+    // cost easy to undercount — it's a whole-cart charge (not a per-item
+    // one), shown as its own clearly-labeled line so the grand total is
+    // never ambiguous about whether shipping is folded in.
+    var shippingRow = document.createElement('div');
+    shippingRow.className = 'row rfp-cart-shipping-row';
+    var shippingLabel = document.createElement('span');
+    shippingLabel.textContent = 'Shipping:';
+    var shippingInput = document.createElement('input');
+    shippingInput.type = 'number';
+    shippingInput.step = '0.01';
+    shippingInput.min = '0';
+    shippingInput.value = '0';
+    var grandTotalSpan = document.createElement('span');
+    grandTotalSpan.className = 'rfp-cart-grand-total';
+    function updateGrandTotal() {
+      var shipping = Number(shippingInput.value) || 0;
+      grandTotalSpan.textContent = 'Total with shipping: ' + money(cartTotal(items) + shipping);
+    }
+    shippingInput.addEventListener('input', updateGrandTotal);
+    updateGrandTotal();
+    shippingRow.appendChild(shippingLabel);
+    shippingRow.appendChild(shippingInput);
+    shippingRow.appendChild(grandTotalSpan);
+    box.appendChild(shippingRow);
+
     var actions = document.createElement('div');
     actions.className = 'card-actions';
 
@@ -354,15 +389,20 @@
     exportBtn.addEventListener('click', function () { exportVendorCSV(vendor, items); });
     actions.appendChild(exportBtn);
 
-    var orderedBtn = document.createElement('button');
-    orderedBtn.type = 'button';
-    orderedBtn.className = 'secondary';
-    orderedBtn.textContent = 'Mark cart as Ordered';
-    orderedBtn.addEventListener('click', function () {
-      if (!window.confirm('Mark all ' + items.length + ' item(s) from ' + vendor + ' as Ordered?')) return;
-      DB.post('markPartsOrdered', null, { ids: items.map(function (p) { return p.id; }) }, function () {});
+    var requestBtn = document.createElement('button');
+    requestBtn.type = 'button';
+    requestBtn.className = 'secondary';
+    requestBtn.textContent = 'Request order approval';
+    requestBtn.title = 'Sends this cart to a mentor to approve before it\'s actually ordered';
+    requestBtn.addEventListener('click', function () {
+      if (!window.confirm('Send this ' + vendor + ' cart (' + items.length + ' item(s)) to a mentor for approval?')) return;
+      DB.post('requestOrderApproval', null, {
+        vendor: vendor,
+        partIds: items.map(function (p) { return p.id; }),
+        shippingCost: shippingInput.value,
+      }, function () {});
     });
-    actions.appendChild(orderedBtn);
+    actions.appendChild(requestBtn);
 
     var submitBtn = document.createElement('button');
     submitBtn.type = 'button';
@@ -373,6 +413,159 @@
 
     box.appendChild(actions);
     return box;
+  }
+
+  // ===== Pending order approvals (mentor-only review, same pattern as ======
+  // goal-deletion approval) ==================================================
+
+  function renderPendingOrders() {
+    var pending = orders.filter(function (o) { return o.status === 'Pending Approval'; });
+    el.pendingOrdersList.innerHTML = '';
+    if (!pending.length) {
+      el.pendingOrdersList.innerHTML = '<p class="empty-state">No pending order approvals.</p>';
+      return;
+    }
+    pending.forEach(function (order) { el.pendingOrdersList.appendChild(buildPendingOrderCard(order)); });
+  }
+
+  function buildPendingOrderCard(order) {
+    var orderParts = parts.filter(function (p) { return (order.partIds || []).indexOf(p.id) !== -1; });
+    var box = document.createElement('div');
+    box.className = 'checklist-item rfp-cart';
+
+    var header = document.createElement('div');
+    header.className = 'checklist-item-header';
+    var titleSpan = document.createElement('span');
+    titleSpan.className = 'checklist-item-title';
+    titleSpan.textContent = order.vendor + ' — ' + orderParts.length + (orderParts.length === 1 ? ' item' : ' items') +
+      ', ' + money(cartTotal(orderParts) + (order.shippingCost || 0)) + ' total with shipping';
+    header.appendChild(titleSpan);
+    box.appendChild(header);
+
+    var itemList = document.createElement('ul');
+    itemList.className = 'rfp-cart-items';
+    orderParts.forEach(function (p) {
+      var li = document.createElement('li');
+      li.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0);
+      itemList.appendChild(li);
+    });
+    box.appendChild(itemList);
+
+    var meta = document.createElement('p');
+    meta.className = 'card-notes';
+    meta.textContent = 'Requested from the ' + (order.requestedBy || 'student') + ' view' +
+      (order.requestedAt ? ' on ' + new Date(order.requestedAt).toLocaleDateString() : '') +
+      (order.shippingCost ? ' — shipping: ' + money(order.shippingCost) : '');
+    box.appendChild(meta);
+
+    var actions = document.createElement('div');
+    actions.className = 'card-actions';
+    var approveBtn = document.createElement('button');
+    approveBtn.type = 'button';
+    approveBtn.textContent = 'Approve order';
+    approveBtn.addEventListener('click', function () {
+      if (!window.confirm('Approve this order from ' + order.vendor + '? This marks the parts Ordered and creates the paper-trail sheet.')) return;
+      DB.post('approveOrder', order.id, {}, function () {});
+    });
+    var denyBtn = document.createElement('button');
+    denyBtn.type = 'button';
+    denyBtn.className = 'secondary';
+    denyBtn.textContent = 'Deny';
+    denyBtn.addEventListener('click', function () {
+      DB.post('denyOrder', order.id, {}, function () {});
+    });
+    actions.appendChild(approveBtn);
+    actions.appendChild(denyBtn);
+    box.appendChild(actions);
+
+    return box;
+  }
+
+  // ===== Orders (approved carts — validate what's actually arrived) =========
+
+  function renderOrders() {
+    var active = orders.filter(function (o) { return o.status === 'Ordered' || o.status === 'Received'; })
+      .sort(function (a, b) { return (b.approvedAt || '').localeCompare(a.approvedAt || ''); });
+    el.ordersList.innerHTML = '';
+    if (!active.length) {
+      el.ordersList.innerHTML = '<p class="empty-state">No orders yet.</p>';
+      return;
+    }
+    active.forEach(function (order) { el.ordersList.appendChild(buildOrderCard(order)); });
+  }
+
+  function buildOrderCard(order) {
+    var orderParts = parts.filter(function (p) { return p.orderId === order.id; });
+    var box = document.createElement('div');
+    box.className = 'checklist-item rfp-cart';
+
+    var header = document.createElement('div');
+    header.className = 'checklist-item-header';
+    var titleSpan = document.createElement('span');
+    titleSpan.className = 'checklist-item-title';
+    var receivedCount = orderParts.filter(function (p) { return p.status === 'Received'; }).length;
+    titleSpan.textContent = order.vendor + ' — ' + receivedCount + ' of ' + orderParts.length + ' received' +
+      (order.status === 'Received' ? ' (complete)' : '');
+    header.appendChild(titleSpan);
+    box.appendChild(header);
+
+    var itemList = document.createElement('ul');
+    itemList.className = 'rfp-cart-items';
+    orderParts.forEach(function (p) {
+      var li = document.createElement('li');
+      li.className = 'rfp-cart-item';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'rfp-cart-item-name';
+      nameSpan.textContent = p.item + ' — ' + (p.qty || 1) + ' × ' + money(p.cost || 0);
+      li.appendChild(nameSpan);
+      if (p.status === 'Received') {
+        var doneSpan = document.createElement('span');
+        doneSpan.textContent = 'Received';
+        li.appendChild(doneSpan);
+      } else {
+        var receiveBtn = document.createElement('button');
+        receiveBtn.type = 'button';
+        receiveBtn.className = 'secondary';
+        receiveBtn.textContent = 'Mark received';
+        receiveBtn.title = 'Adds this part\'s quantity to shared inventory';
+        receiveBtn.addEventListener('click', function () {
+          DB.post('receivePart', p.id, {}, function () {});
+        });
+        li.appendChild(receiveBtn);
+      }
+      itemList.appendChild(li);
+    });
+    box.appendChild(itemList);
+
+    if (order.sheetUrl) {
+      var linkA = document.createElement('a');
+      linkA.href = order.sheetUrl;
+      linkA.target = '_blank';
+      linkA.rel = 'noopener';
+      linkA.textContent = 'View purchase sheet';
+      box.appendChild(linkA);
+    }
+
+    return box;
+  }
+
+  // Warns while adding a new RFP part if something with a similar name is
+  // already sitting in shared inventory with stock on hand — a fuzzy
+  // (substring, either direction) check, unlike the exact match used when
+  // folding a received part into inventory, since this is just a "maybe
+  // check first" nudge, not something that merges records.
+  function wireInventoryCheck(itemInput, statusEl) {
+    if (!itemInput || !statusEl) return;
+    itemInput.addEventListener('input', function () {
+      var q = itemInput.value.trim().toLowerCase();
+      if (q.length < 3) { statusEl.textContent = ''; return; }
+      var match = inventory.filter(function (i) {
+        return (i.quantity || 0) > 0 && i.nameLower && (i.nameLower.indexOf(q) !== -1 || q.indexOf(i.nameLower) !== -1);
+      })[0];
+      statusEl.textContent = match
+        ? 'Already have ' + match.quantity + ' of "' + match.name + '"' + (match.location ? ' in ' + match.location : '') + ' — check before ordering more.'
+        : '';
+    });
   }
 
   // Recipients are resolved from data the app already has, not a new
@@ -572,6 +765,7 @@
 
   if (el.form) {
     if (el.form.link) wireLinkAutofill(el.form.link, el.form.item, el.form.vendor, el.form.cost, el.form.qty, el.formStatus, el.form.status);
+    if (el.form.item && el.inventoryMatch) wireInventoryCheck(el.form.item, el.inventoryMatch);
 
     el.form.addEventListener('submit', function (e) {
       e.preventDefault();

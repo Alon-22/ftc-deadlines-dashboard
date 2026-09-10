@@ -94,5 +94,29 @@ service cloud.firestore {
       allow read: if signedInAs(teamId);
       allow write: if signedInAs(teamId) && isMentor();
     }
+
+    // Orders: a vendor cart, from "student requested approval" through
+    // "mentor approved" to "received" — both roles, same open pattern as
+    // parts/deadlines above. Same trust boundary as goal deletion requests:
+    // the app's UI only exposes the approve/deny actions on the mentor
+    // page, not a rules-level restriction, matching how goals already work.
+    match /teams/{teamId}/orders/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+
+    // Shared cross-team inventory: deliberately NOT nested under any one
+    // team, since every team registered in this project pools the same
+    // physical parts stock and any of them can check items in or out —
+    // any signed-in user from any team can read/write any inventory item.
+    // This is a real widening of the trust boundary versus everything else
+    // in this file (which is all scoped to request.auth.token.team), and
+    // is intentional: it's the whole point of a shared pool.
+    match /inventory/{id} {
+      allow read, write: if request.auth != null;
+
+      match /log/{logId} {
+        allow read, write: if request.auth != null;
+      }
+    }
   }
 }

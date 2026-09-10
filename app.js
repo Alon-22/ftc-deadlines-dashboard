@@ -312,6 +312,36 @@
       .catch(function (err) { cb(false, String(err)); });
   }
 
+  // Asks Code.gs to create the paper-trail sheet tab for a mentor-approved
+  // order — see WRITE_HANDLERS.approveOrder, which calls this right after
+  // the approval itself is already committed, so a failure here never
+  // blocks the approval or leaves parts in a half-updated state.
+  function createOrderSheet(vendor, parts, shippingCost, teamLabel, cb) {
+    var team = teamConfig();
+    if (!team) return cb(null, 'No team selected');
+    fetch(team.webAppUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'createOrderSheet',
+        team: state.team,
+        view: VIEW,
+        passcode: state.passcode,
+        fields: {
+          vendor: vendor,
+          teamLabel: teamLabel,
+          shippingCost: shippingCost,
+          parts: parts.map(function (p) { return { item: p.item, link: p.link || '', qty: p.qty || 1, cost: p.cost || 0 }; }),
+        },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb({ sheetUrl: json.sheetUrl, sheetName: json.sheetName }, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
   // Suggests a 1-5 point/difficulty value for a new goal via Gemini — a
   // starting point only, never written anywhere on its own; the add-goal
   // forms pre-fill their (always-editable) Points field with this and the
@@ -478,6 +508,21 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    unsubscribers.push(teamRef.collection('orders').onSnapshot(function (snap) {
+      ensureData_().orders = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    // Inventory is the one collection that isn't scoped under this team —
+    // it's shared across every team registered in this Firebase project on
+    // purpose (a pooled parts stock), so it's read straight off the root
+    // `db`, not `teamRef`. Security rules gate it on "signed in as some
+    // team", not "signed in as this specific team".
+    unsubscribers.push(db.collection('inventory').onSnapshot(function (snap) {
+      ensureData_().inventory = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
     if (VIEW === 'mentor') {
       unsubscribers.push(teamRef.collection('people').onSnapshot(function (snap) {
         var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
@@ -515,7 +560,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [], pendingDeletionItems: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [], pendingDeletionItems: [], orders: [], inventory: [] };
     return state.data;
   }
 
@@ -1619,6 +1664,31 @@
     return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
+  // Folds a received quantity into the shared inventory pool — an exact
+  // (case-insensitive) name match gets its quantity bumped; anything else
+  // becomes a brand new entry with an empty location for a mentor to fill
+  // in. Deliberately exact-only here (unlike the fuzzy warning shown while
+  // adding a new RFP part) so two differently-named parts never silently
+  // get merged into one inventory line.
+  function addToInventory_(name, qty) {
+    var trimmed = (name || '').trim();
+    if (!trimmed) return Promise.resolve();
+    var normalized = trimmed.toLowerCase();
+    return db.collection('inventory').where('nameLower', '==', normalized).limit(1).get().then(function (snap) {
+      if (!snap.empty) {
+        var doc = snap.docs[0];
+        return doc.ref.update({ quantity: (doc.data().quantity || 0) + qty, lastUpdated: new Date().toISOString() });
+      }
+      return db.collection('inventory').add({
+        name: trimmed,
+        nameLower: normalized,
+        quantity: qty,
+        location: '',
+        lastUpdated: new Date().toISOString(),
+      });
+    });
+  }
+
   // ===== Per-goal activity feed ================================================
   // A lightweight, best-effort log — never blocks or fails the actual write
   // it's describing. Shown alongside comments/subtasks in the goal modal's
@@ -1995,12 +2065,122 @@
 
     // Bulk "mark this vendor's cart as ordered" after exporting a Request
     // for Purchase — same batch-write pattern resetChecklistItems uses.
-    markPartsOrdered: function (id, fields) {
-      var batch = db.batch();
-      (fields.ids || []).forEach(function (partId) {
-        batch.update(teamRef_().collection('parts').doc(partId), { status: 'Ordered' });
+    // ===== Orders (Budget tab: a vendor cart becomes a persistent, ==========
+    // approvable entity instead of just an ad-hoc grouping of Wishlist
+    // parts) =================================================================
+
+    requestOrderApproval: function (id, fields) {
+      return teamRef_().collection('orders').add({
+        vendor: fields.vendor,
+        partIds: fields.partIds || [],
+        shippingCost: Number(fields.shippingCost) || 0,
+        status: 'Pending Approval',
+        requestedBy: VIEW,
+        requestedAt: new Date().toISOString(),
+        approvedAt: null,
+        sheetUrl: null,
       });
-      return batch.commit();
+    },
+
+    // Mentor-only in the UI (same pattern as goal-deletion approval) — marks
+    // every part in the cart Ordered, linked back to this order (so "did we
+    // get everything from this cart" has something to check against), then
+    // asks Code.gs to create the paper-trail sheet tab. That call is
+    // fire-and-forget: if it fails, the order is still correctly approved
+    // and parts are still correctly marked Ordered — a flaky Sheets API
+    // call should never block the actual approval.
+    approveOrder: function (id) {
+      var order = (state.data.orders || []).filter(function (o) { return o.id === id; })[0];
+      if (!order) return Promise.reject(new Error('Order not found'));
+      var batch = db.batch();
+      var ordersColl = teamRef_().collection('orders');
+      var partsColl = teamRef_().collection('parts');
+      batch.update(ordersColl.doc(id), { status: 'Ordered', approvedAt: new Date().toISOString() });
+      order.partIds.forEach(function (partId) {
+        batch.update(partsColl.doc(partId), { status: 'Ordered', orderId: id });
+      });
+      return batch.commit().then(function () {
+        var orderedParts = (state.data.parts || []).filter(function (p) { return order.partIds.indexOf(p.id) !== -1; });
+        var teamLabel = (teamConfig() || {}).label || state.team;
+        createOrderSheet(order.vendor, orderedParts, order.shippingCost, teamLabel, function (result) {
+          if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
+        });
+      });
+    },
+
+    // Denying just removes the request — nothing else was touched yet, so
+    // there's nothing to undo; the parts are still sitting in Wishlist.
+    denyOrder: function (id) {
+      return teamRef_().collection('orders').doc(id).delete();
+    },
+
+    // Marks one part in an approved order Received, folds its quantity into
+    // the shared inventory pool (matched by name — an exact match gets its
+    // quantity bumped, otherwise a new inventory entry is created), and —
+    // once every part sharing this order's id is Received — marks the whole
+    // order Received too, so "did this cart fully arrive" is one yes/no
+    // instead of checking each part by hand.
+    receivePart: function (id) {
+      var part = (state.data.parts || []).filter(function (p) { return p.id === id; })[0];
+      if (!part) return Promise.reject(new Error('Part not found'));
+      return teamRef_().collection('parts').doc(id).update({ status: 'Received', receivedAt: new Date().toISOString() })
+        .then(function () { return addToInventory_(part.item, Number(part.qty) || 1); })
+        .then(function () {
+          if (!part.orderId) return;
+          var siblings = (state.data.parts || []).filter(function (p) { return p.orderId === part.orderId; });
+          var allIn = siblings.every(function (p) { return p.id === id || p.status === 'Received'; });
+          if (allIn) return teamRef_().collection('orders').doc(part.orderId).update({ status: 'Received' });
+        });
+    },
+
+    // ===== Shared cross-team inventory =======================================
+    // Not scoped under any one team on purpose — every team registered in
+    // this project pools the same parts stock, and can each check items in
+    // and out of it (see subscribeToTeam's inventory listener, read straight
+    // off the root db instead of teamRef).
+
+    addInventoryItem: function (id, fields) {
+      var name = (fields.name || '').trim();
+      return db.collection('inventory').add({
+        name: name,
+        nameLower: name.toLowerCase(),
+        quantity: Number(fields.quantity) || 0,
+        location: fields.location || '',
+        lastUpdated: new Date().toISOString(),
+      });
+    },
+
+    updateInventoryItem: function (id, fields) {
+      var patch = { lastUpdated: new Date().toISOString() };
+      if ('location' in fields) patch.location = fields.location;
+      if ('quantity' in fields) patch.quantity = Number(fields.quantity) || 0;
+      if ('name' in fields) { patch.name = fields.name; patch.nameLower = (fields.name || '').trim().toLowerCase(); }
+      return db.collection('inventory').doc(id).update(patch);
+    },
+
+    deleteInventoryItem: function (id) {
+      return db.collection('inventory').doc(id).delete();
+    },
+
+    // qty here is always positive; checkout subtracts, return adds. Both
+    // log a line to a per-item audit trail (which team, how much, when) —
+    // not surfaced in the UI yet, but cheap to have if a discrepancy ever
+    // needs tracing later.
+    checkoutInventoryItem: function (id, fields) {
+      var qty = Number(fields.qty) || 1;
+      var item = (state.data.inventory || []).filter(function (i) { return i.id === id; })[0];
+      if (!item) return Promise.reject(new Error('Item not found'));
+      var newQty = Math.max(0, (item.quantity || 0) - qty);
+      return db.collection('inventory').doc(id).update({ quantity: newQty, lastUpdated: new Date().toISOString() })
+        .then(function () { return db.collection('inventory').doc(id).collection('log').add({ type: 'checkout', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
+    },
+
+    returnInventoryItem: function (id, fields) {
+      var qty = Number(fields.qty) || 1;
+      var item = (state.data.inventory || []).filter(function (i) { return i.id === id; })[0];
+      if (!item) return Promise.reject(new Error('Item not found'));
+      return db.collection('inventory').doc(id).update({ quantity: (item.quantity || 0) + qty, lastUpdated: new Date().toISOString() })
+        .then(function () { return db.collection('inventory').doc(id).collection('log').add({ type: 'return', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
     },
   };
 

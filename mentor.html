@@ -51,6 +51,7 @@
   </div>
   <div class="tab-group" data-group="team">
     <button class="tab-btn" data-tab="budget">Budget</button>
+    <button class="tab-btn" data-tab="inventory">Inventory</button>
     <button class="tab-btn" data-tab="people">People</button>
   </div>
   <div class="tab-group" data-group="reports">
@@ -295,6 +296,7 @@
             <input type="text" name="link" placeholder="Paste a link to auto-fill vendor + cost">
           </div>
           <div class="card-meta" id="add-part-lookup-status"></div>
+          <div class="card-meta" id="add-part-inventory-match"></div>
           <div class="row">
             <input type="text" name="vendor" placeholder="Vendor (optional)">
             <input type="number" name="cost" step="0.01" placeholder="Cost each">
@@ -312,11 +314,46 @@
     </section>
     <section class="group">
       <h2>Request for Purchase</h2>
-      <p class="card-meta">Wishlist parts, grouped into one cart per vendor. Export a cart as a CSV to submit to your purchasing office or the vendor, then mark it Ordered once it's in.</p>
+      <p class="card-meta">Wishlist parts, grouped into one cart per vendor. Export a cart as a CSV, or request order approval to have a mentor sign off and generate the purchase sheet.</p>
       <div id="budget-request-list"></div>
     </section>
     <section class="group">
+      <h2>Pending order approvals</h2>
+      <p class="card-meta">Carts a student requested approval for — approve to mark parts Ordered and generate the purchase sheet, or deny to send them back to Wishlist.</p>
+      <div id="budget-pending-orders-list"></div>
+    </section>
+    <section class="group">
       <div id="budget-list"></div>
+    </section>
+    <section class="group">
+      <h2>Orders</h2>
+      <p class="card-meta">Approved carts — mark parts received as they arrive to keep shared inventory accurate.</p>
+      <div id="budget-orders-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="inventory">
+    <section class="group">
+      <h2>Inventory</h2>
+      <p class="card-meta">Shared parts pool across every team — check what's on hand before ordering more, and check items in or out as you use them.</p>
+      <div id="inventory-summary"></div>
+      <div class="row">
+        <input type="text" id="inventory-search" placeholder="Search inventory...">
+      </div>
+      <details>
+        <summary><strong>+ Add an item</strong></summary>
+        <form class="add-form" id="add-inventory-form">
+          <div class="row">
+            <input type="text" name="name" placeholder="Item name" required>
+            <input type="number" name="quantity" min="0" placeholder="Quantity" value="1">
+            <input type="text" name="location" placeholder="Location (e.g. Shop shelf B)">
+          </div>
+          <button type="submit">Add item</button>
+        </form>
+      </details>
+    </section>
+    <section class="group">
+      <div id="inventory-list"></div>
     </section>
   </div>
 
@@ -452,6 +489,7 @@
 <script src="notebook.js?v=c730dc9"></script>
 <script src="checklist.js?v=c730dc9"></script>
 <script src="budget.js?v=c730dc9"></script>
+<script src="inventory.js?v=c730dc9"></script>
 <script src="people.js?v=c730dc9"></script>
 </body>
 </html>

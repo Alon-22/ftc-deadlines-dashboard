@@ -45,6 +45,7 @@
   </div>
   <div class="tab-group" data-group="team">
     <button class="tab-btn" data-tab="budget">Budget</button>
+    <button class="tab-btn" data-tab="inventory">Inventory</button>
   </div>
   <div class="tab-group" data-group="reports">
     <button class="tab-btn" data-tab="season">Season</button>
@@ -272,6 +273,7 @@
             <input type="text" name="link" placeholder="Paste a link to auto-fill vendor + cost">
           </div>
           <div class="card-meta" id="add-part-lookup-status"></div>
+          <div class="card-meta" id="add-part-inventory-match"></div>
           <div class="row">
             <input type="text" name="vendor" placeholder="Vendor (optional)">
             <input type="number" name="cost" step="0.01" placeholder="Cost each">
@@ -289,6 +291,36 @@
     </section>
     <section class="group">
       <div id="budget-list"></div>
+    </section>
+    <section class="group">
+      <h2>Orders</h2>
+      <p class="card-meta">Approved carts — mark parts received as they arrive to keep shared inventory accurate.</p>
+      <div id="budget-orders-list"></div>
+    </section>
+  </div>
+
+  <div class="tab-panel" data-tab="inventory">
+    <section class="group">
+      <h2>Inventory</h2>
+      <p class="card-meta">Shared parts pool across every team — check what's on hand before ordering more, and check items in or out as you use them.</p>
+      <div id="inventory-summary"></div>
+      <div class="row">
+        <input type="text" id="inventory-search" placeholder="Search inventory...">
+      </div>
+      <details>
+        <summary><strong>+ Add an item</strong></summary>
+        <form class="add-form" id="add-inventory-form">
+          <div class="row">
+            <input type="text" name="name" placeholder="Item name" required>
+            <input type="number" name="quantity" min="0" placeholder="Quantity" value="1">
+            <input type="text" name="location" placeholder="Location (e.g. Shop shelf B)">
+          </div>
+          <button type="submit">Add item</button>
+        </form>
+      </details>
+    </section>
+    <section class="group">
+      <div id="inventory-list"></div>
     </section>
   </div>
 
@@ -407,5 +439,6 @@
 <script src="notebook.js?v=c730dc9"></script>
 <script src="checklist.js?v=c730dc9"></script>
 <script src="budget.js?v=c730dc9"></script>
+<script src="inventory.js?v=c730dc9"></script>
 </body>
 </html>
