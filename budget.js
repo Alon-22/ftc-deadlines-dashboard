@@ -490,11 +490,17 @@
     requestBtn.title = 'Sends this cart to a mentor to approve before it\'s actually ordered';
     requestBtn.addEventListener('click', function () {
       if (!window.confirm('Send this ' + vendor + ' cart (' + items.length + ' item(s)) to a mentor for approval?')) return;
+      // Disabled immediately, not just after the write resolves — this
+      // card normally disappears once the request lands (its parts drop
+      // out of Request for Purchase), but a slow connection leaves a short
+      // window where a second click here would file a duplicate request
+      // for the same cart.
+      requestBtn.disabled = true;
       DB.post('requestOrderApproval', null, {
         vendor: vendor,
         partIds: items.map(function (p) { return p.id; }),
         shippingCost: shippingInput.value,
-      }, function () {});
+      }, function () { requestBtn.disabled = false; });
     });
     actions.appendChild(requestBtn);
 
@@ -669,9 +675,26 @@
       placedBtn.title = 'Once you\'ve actually placed this order with the vendor';
       placedBtn.addEventListener('click', function () {
         if (!window.confirm('Mark this ' + order.vendor + ' order as placed? This marks the parts Ordered and creates the paper-trail sheet.')) return;
-        DB.post('markOrderPlaced', order.id, {}, function () {});
+        placedBtn.disabled = true;
+        DB.post('markOrderPlaced', order.id, {}, function () { placedBtn.disabled = false; });
       });
       actions.appendChild(placedBtn);
+      // Mentor-only, same trust level as approving in the first place —
+      // covers a duplicate request (the same cart submitted more than
+      // once) or one approved by mistake, without having to actually
+      // place and then somehow un-place a real order.
+      if (DB.view === 'mentor') {
+        var cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'secondary';
+        cancelBtn.textContent = 'Cancel';
+        cancelBtn.title = 'Removes this approved cart without ordering it — e.g. a duplicate request';
+        cancelBtn.addEventListener('click', function () {
+          if (!window.confirm('Cancel this approved ' + order.vendor + ' order? Its parts go back to being un-requested Wishlist items.')) return;
+          DB.post('denyOrder', order.id, {}, function () {});
+        });
+        actions.appendChild(cancelBtn);
+      }
       box.appendChild(actions);
     }
 
