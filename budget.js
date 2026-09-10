@@ -489,7 +489,7 @@
     submitBtn.type = 'button';
     submitBtn.className = 'secondary';
     submitBtn.textContent = 'Submit to coaches';
-    submitBtn.addEventListener('click', function () { submitCartToCoaches_(vendor, items, submitBtn); });
+    submitBtn.addEventListener('click', function () { submitCartToCoaches_(vendor, items, shippingInput.value, submitBtn); });
     actions.appendChild(submitBtn);
 
     box.appendChild(actions);
@@ -672,10 +672,24 @@
     return lines.join('\n');
   }
 
-  function submitCartToCoaches_(vendor, items, btn) {
+  function submitCartToCoaches_(vendor, items, shippingCost, btn) {
     var emails = coachEmails_();
     if (!emails.length) {
-      DB.toast('No coach emails found — add mentor names + emails to the People tab first.');
+      // No coach email on file to actually send to — the point of this
+      // button is getting a mentor's attention, so fall back to the same
+      // in-app request a mentor already checks (Pending order approvals)
+      // rather than just failing with nothing to show for it.
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      DB.post('requestOrderApproval', null, {
+        vendor: vendor,
+        partIds: items.map(function (p) { return p.id; }),
+        shippingCost: shippingCost,
+      }, function (ok) {
+        btn.disabled = false;
+        btn.textContent = 'Submit to coaches';
+        DB.toast(ok ? 'No coach emails on file — sent to the mentor dashboard for approval instead.' : 'Could not send for approval.');
+      });
       return;
     }
     var teamLabel = (DB.teamConfig() || {}).label || DB.state.team || '';
