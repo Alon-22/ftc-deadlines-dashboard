@@ -327,13 +327,26 @@
   }
 
   // ===== Request for Purchase ==================================================
-  // Every Wishlist part, grouped by vendor — a mentor's shopping cart per
-  // vendor. Export turns that group into a CSV a purchasing office or
-  // treasurer can act on; once it's actually been submitted, "Mark
-  // ordered" bulk-flips the whole cart to Ordered in one write.
+  // Every Wishlist part, grouped by vendor — a shopping cart per vendor.
+  // Export turns that group into a CSV a purchasing office or treasurer can
+  // act on; "Request order approval"/"Submit to coaches" file it with a
+  // mentor instead. A part's own status stays "Wishlist" all the way
+  // through Pending Approval and Approved (only "Mark as ordered" flips
+  // it) — so without excluding already-in-flight parts here, a submitted
+  // cart would just sit in this list looking untouched, inviting a
+  // duplicate request. Once denied, the order doc is gone and its parts
+  // (still Wishlist) reappear here on their own.
 
   function renderRequestSection() {
-    var wishlist = parts.filter(function (p) { return (p.status || 'Wishlist') === 'Wishlist'; });
+    var inFlightPartIds = {};
+    orders.forEach(function (o) {
+      if (o.status === 'Pending Approval' || o.status === 'Approved') {
+        (o.partIds || []).forEach(function (id) { inFlightPartIds[id] = true; });
+      }
+    });
+    var wishlist = parts.filter(function (p) {
+      return (p.status || 'Wishlist') === 'Wishlist' && !inFlightPartIds[p.id];
+    });
     el.requestList.innerHTML = '';
     if (!wishlist.length) {
       el.requestList.innerHTML = '<p class="empty-state">Nothing on the wishlist to request right now.</p>';
