@@ -24,14 +24,56 @@
  */
 
 // ===== Team registry =====================================================
-
+function handleRequest_(e, isPost) {
+  if (!TEAMS.MysteryMeat.purchaseSheetId) TEAMS.MysteryMeat.purchaseSheetId = '1NS1B9wblAvoalq04AKr5GUICudRIfcNHSGIQuXUWGwY';
+  var result;
+  try { var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {}); if (params.action === 'mintToken') { result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode); } else if (params.action === 'uploadPhoto') { result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'lookupPartPrice') { result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'sendPurchaseRequestEmail') { result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrderSheet') { result = createOrderSheet_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'estimateDifficulty') { result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'reviewGoal') { result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else { result = isPost ? handleWrite_(params) : handleRead_(params); } } catch (err) { result = { ok: false, error: String(err && err.message ? err.message : err) }; }
+  return jsonOut_(result);
+  }
+  function createOrderSheet_(teamKey, view, passcode, fields) {
+  var team = TEAMS[teamKey];
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, view, passcode)) { return { ok: false, error: 'Invalid or missing passcode' }; }
+  if (!team.purchaseSheetId) return { ok: false, error: 'No purchase sheet configured for this team' };
+  var vendor = (fields.vendor || '').trim();
+  var parts = fields.parts || [];
+  if (!vendor || !parts.length) return { ok: false, error: 'Missing vendor or parts' };
+  var ss = SpreadsheetApp.openById(team.purchaseSheetId);
+  var now = new Date();
+  var baseName = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + vendor;
+  var name = baseName;
+  var suffix = 2;
+  while (ss.getSheetByName(name)) { name = baseName + ' (' + suffix + ')'; suffix++; }
+  var sheet = ss.insertSheet(name);
+  var orderedDate = Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/Los_Angeles', 'M/d/yyyy');
+  var rows = [['Purchase Request'], ['Team', fields.teamLabel || teamKey], ['Vendor', vendor], ['Date', orderedDate], [], ['Item', 'Link', 'Qty', 'Cost Each', 'Line Total', 'ordered Date', 'Received']];
+  var partsTotal = 0;
+  parts.forEach(function (p) { var qty = Number(p.qty) || 1; var cost = Number(p.cost) || 0; var lineTotal = qty * cost; partsTotal += lineTotal; rows.push([p.item || '', p.link || '', qty, cost, lineTotal, orderedDate, false]); });
+  var shipping = Number(fields.shippingCost) || 0;
+  var headerRowCount = 6;
+  var totalRowIndex = headerRowCount + parts.length + 2;
+  rows.push([]);
+  rows.push(['', '', '', 'Shipping', shipping]);
+  rows.push(['', '', '', 'Total (with shipping)', partsTotal + shipping]);
+  var width = rows.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
+  rows.forEach(function (r) { while (r.length < width) r.push(''); });
+  sheet.getRange(1, 1, rows.length, width).setValues(rows);
+  sheet.getRange(1, 1).setFontWeight('bold');
+  sheet.getRange(headerRowCount, 1, 1, width).setFontWeight('bold');
+  sheet.getRange(totalRowIndex - 1, 4, 2, 2).setFontWeight('bold');
+  sheet.getRange(headerRowCount + 1, 4, parts.length + 2, 2).setNumberFormat('$#,##0.00');
+  if (parts.length) sheet.getRange(headerRowCount + 1, 7, parts.length, 1).insertCheckboxes();
+  var gid = sheet.getSheetId();
+  var url = 'https://docs.google.com/spreadsheets/d/' + team.purchaseSheetId + '/edit#gid=' + gid;
+  return { ok: true, sheetUrl: url, sheetName: name };
+  }
+  
 const TEAMS = {
   MysteryMeat: {
     sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
     calendarId: 'c_75dae7e7b71d6c86414525f344f9018a0b245cc08756965c47c23fbc47e812f7@group.calendar.google.com',
     mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
     driveFolderId: '0AJC_ts9JONRuUk9PVA', // Shared Drive — uploadPhoto_ creates a subfolder in here, not in My Drive
-    purchaseSheetId: '1NS1B9wblAvoalq04AKr5GUICudRIfcNHSGIQuXUWGwY', // "2026-27 Robotics purchases" — createOrderSheet_ adds one new tab here per mentor-approved order
   },
   // example: {
   //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
@@ -110,33 +152,6 @@ function doGet(e) {
 
 function doPost(e) {
   return handleRequest_(e, true);
-}
-
-function handleRequest_(e, isPost) {
-  var result;
-  try {
-    var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {});
-    if (params.action === 'mintToken') {
-      result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode);
-    } else if (params.action === 'uploadPhoto') {
-      result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else if (params.action === 'lookupPartPrice') {
-      result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else if (params.action === 'sendPurchaseRequestEmail') {
-      result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else if (params.action === 'createOrderSheet') {
-      result = createOrderSheet_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else if (params.action === 'estimateDifficulty') {
-      result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else if (params.action === 'reviewGoal') {
-      result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {});
-    } else {
-      result = isPost ? handleWrite_(params) : handleRead_(params);
-    }
-  } catch (err) {
-    result = { ok: false, error: String(err && err.message ? err.message : err) };
-  }
-  return jsonOut_(result);
 }
 
 function jsonOut_(obj) {
@@ -928,75 +943,6 @@ function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
 
   MailApp.sendEmail({ to: to.join(','), subject: fields.subject, body: fields.body });
   return { ok: true };
-}
-
-// ===== Order sheet generation (Budget tab: request approval, then mentor ===
-// approval, creates the paper-trail tab) ====================================
-// Each mentor-approved order gets its own new tab in the team's purchases
-// spreadsheet (TEAMS[...].purchaseSheetId), named "<M>/<D> <Vendor>" to match
-// the format the team already used by hand, with a Received checkbox column
-// added (the hand-made tabs didn't have one) and the total explicitly
-// including shipping, called out as its own line so it's never ambiguous
-// whether shipping was folded in.
-
-function createOrderSheet_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
-  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
-  if (!checkPasscode_(teamKey, view, passcode)) {
-    return { ok: false, error: 'Invalid or missing passcode' };
-  }
-  if (!team.purchaseSheetId) return { ok: false, error: 'No purchase sheet configured for this team' };
-  var vendor = (fields.vendor || '').trim();
-  var parts = fields.parts || [];
-  if (!vendor || !parts.length) return { ok: false, error: 'Missing vendor or parts' };
-
-  var ss = SpreadsheetApp.openById(team.purchaseSheetId);
-  var now = new Date();
-  var baseName = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + vendor;
-  var name = baseName;
-  var suffix = 2;
-  while (ss.getSheetByName(name)) {
-    name = baseName + ' (' + suffix + ')';
-    suffix++;
-  }
-
-  var sheet = ss.insertSheet(name);
-  var orderedDate = Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/Los_Angeles', 'M/d/yyyy');
-  var rows = [
-    ['Purchase Request'],
-    ['Team', fields.teamLabel || teamKey],
-    ['Vendor', vendor],
-    ['Date', orderedDate],
-    [],
-    ['Item', 'Link', 'Qty', 'Cost Each', 'Line Total', 'ordered Date', 'Received'],
-  ];
-  var partsTotal = 0;
-  parts.forEach(function (p) {
-    var qty = Number(p.qty) || 1;
-    var cost = Number(p.cost) || 0;
-    var lineTotal = qty * cost;
-    partsTotal += lineTotal;
-    rows.push([p.item || '', p.link || '', qty, cost, lineTotal, orderedDate, false]);
-  });
-  var shipping = Number(fields.shippingCost) || 0;
-  var headerRowCount = 6;
-  var totalRowIndex = headerRowCount + parts.length + 2; // one blank row, then this
-  rows.push([]);
-  rows.push(['', '', '', 'Shipping', shipping]);
-  rows.push(['', '', '', 'Total (with shipping)', partsTotal + shipping]);
-
-  var width = rows.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
-  rows.forEach(function (r) { while (r.length < width) r.push(''); });
-  sheet.getRange(1, 1, rows.length, width).setValues(rows);
-  sheet.getRange(1, 1).setFontWeight('bold');
-  sheet.getRange(headerRowCount, 1, 1, width).setFontWeight('bold');
-  sheet.getRange(totalRowIndex - 1, 4, 2, 2).setFontWeight('bold');
-  sheet.getRange(headerRowCount + 1, 4, parts.length + 2, 2).setNumberFormat('$#,##0.00');
-  if (parts.length) sheet.getRange(headerRowCount + 1, 7, parts.length, 1).insertCheckboxes();
-
-  var gid = sheet.getSheetId();
-  var url = 'https://docs.google.com/spreadsheets/d/' + team.purchaseSheetId + '/edit#gid=' + gid;
-  return { ok: true, sheetUrl: url, sheetName: name };
 }
 
 // ===== Goal difficulty estimate (Gemini) ====================================
