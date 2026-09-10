@@ -17,7 +17,7 @@
     form: document.getElementById('add-part-form'),
     formStatus: document.getElementById('add-part-lookup-status'),
     requestList: document.getElementById('budget-request-list'), // mentor.html only
-    pendingOrdersList: document.getElementById('budget-pending-orders-list'), // mentor.html only
+    pendingOrdersList: document.getElementById('budget-pending-orders-list'), // both views — see buildPendingOrderCard for the mentor-only actions
     ordersList: document.getElementById('budget-orders-list'),
     bulkBar: document.getElementById('budget-bulk-bar'), // mentor.html only
     inventoryMatch: document.getElementById('add-part-inventory-match'),
@@ -552,25 +552,36 @@
       (order.shippingCost ? ' — shipping: ' + money(order.shippingCost) : '');
     box.appendChild(meta);
 
-    var actions = document.createElement('div');
-    actions.className = 'card-actions';
-    var approveBtn = document.createElement('button');
-    approveBtn.type = 'button';
-    approveBtn.textContent = 'Approve order';
-    approveBtn.addEventListener('click', function () {
-      if (!window.confirm('Approve this order from ' + order.vendor + '? It\'ll move to Orders, where anyone can mark it as ordered once it\'s actually been purchased.')) return;
-      DB.post('approveOrder', order.id, {}, function () {});
-    });
-    var denyBtn = document.createElement('button');
-    denyBtn.type = 'button';
-    denyBtn.className = 'secondary';
-    denyBtn.textContent = 'Deny';
-    denyBtn.addEventListener('click', function () {
-      DB.post('denyOrder', order.id, {}, function () {});
-    });
-    actions.appendChild(approveBtn);
-    actions.appendChild(denyBtn);
-    box.appendChild(actions);
+    // Approve/deny is a mentor-only decision, but the card itself renders
+    // on both views (see el.pendingOrdersList) so whoever requested it can
+    // see their cart actually registered somewhere, instead of it just
+    // disappearing from Request for Purchase with nothing to show for it.
+    if (DB.view === 'mentor') {
+      var actions = document.createElement('div');
+      actions.className = 'card-actions';
+      var approveBtn = document.createElement('button');
+      approveBtn.type = 'button';
+      approveBtn.textContent = 'Approve order';
+      approveBtn.addEventListener('click', function () {
+        if (!window.confirm('Approve this order from ' + order.vendor + '? It\'ll move to Orders, where anyone can mark it as ordered once it\'s actually been purchased.')) return;
+        DB.post('approveOrder', order.id, {}, function () {});
+      });
+      var denyBtn = document.createElement('button');
+      denyBtn.type = 'button';
+      denyBtn.className = 'secondary';
+      denyBtn.textContent = 'Deny';
+      denyBtn.addEventListener('click', function () {
+        DB.post('denyOrder', order.id, {}, function () {});
+      });
+      actions.appendChild(approveBtn);
+      actions.appendChild(denyBtn);
+      box.appendChild(actions);
+    } else {
+      var waitingNote = document.createElement('p');
+      waitingNote.className = 'card-meta';
+      waitingNote.textContent = 'Waiting on a mentor to approve or deny this.';
+      box.appendChild(waitingNote);
+    }
 
     return box;
   }
