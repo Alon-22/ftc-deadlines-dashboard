@@ -523,14 +523,16 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
-    if (VIEW === 'mentor') {
-      unsubscribers.push(teamRef.collection('people').onSnapshot(function (snap) {
-        var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
-        people.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
-        ensureData_().people = people;
-        recomputeAndRender();
-      }, onSnapshotError_));
-    }
+    // Both roles read this (Firestore rules only gate the write) — a
+    // student needs it too, to resolve coach emails when submitting an RFP
+    // cart to coaches. There's no student-facing People tab either way;
+    // this just puts the data where budget.js's coachEmails_ can find it.
+    unsubscribers.push(teamRef.collection('people').onSnapshot(function (snap) {
+      var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      people.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+      ensureData_().people = people;
+      recomputeAndRender();
+    }, onSnapshotError_));
 
     unsubscribers.push(teamRef.collection('views').onSnapshot(function (snap) {
       ensureData_().views = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
