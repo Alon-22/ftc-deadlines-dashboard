@@ -2119,18 +2119,30 @@
     // call is fire-and-forget: if it fails, the order is still correctly
     // marked Ordered and parts are still correctly updated — a flaky Sheets
     // API call should never block the write itself.
+    //
+    // A batch's part-updates and the order's own status update all commit
+    // together or not at all — so if even one part in partIds had since
+    // been deleted (edited out, a duplicate cleaned up, etc.), Firestore
+    // rejects the WHOLE batch with "No document to update", and the order
+    // silently never leaves Approved no matter how many times this is
+    // clicked. Filtering partIds down to parts that still actually exist
+    // (state.data.parts is already a live, current snapshot) keeps one
+    // stale reference from blocking the rest of a real cart.
     markOrderPlaced: function (id) {
       var order = (state.data.orders || []).filter(function (o) { return o.id === id; })[0];
       if (!order) return Promise.reject(new Error('Order not found'));
+      var livePartIds = {};
+      (state.data.parts || []).forEach(function (p) { livePartIds[p.id] = true; });
+      var partIds = (order.partIds || []).filter(function (pid) { return livePartIds[pid]; });
       var batch = db.batch();
       var ordersColl = teamRef_().collection('orders');
       var partsColl = teamRef_().collection('parts');
       batch.update(ordersColl.doc(id), { status: 'Ordered', orderedAt: new Date().toISOString() });
-      order.partIds.forEach(function (partId) {
+      partIds.forEach(function (partId) {
         batch.update(partsColl.doc(partId), { status: 'Ordered', orderId: id });
       });
       return batch.commit().then(function () {
-        var orderedParts = (state.data.parts || []).filter(function (p) { return order.partIds.indexOf(p.id) !== -1; });
+        var orderedParts = (state.data.parts || []).filter(function (p) { return partIds.indexOf(p.id) !== -1; });
         var teamLabel = (teamConfig() || {}).label || state.team;
         createOrderSheet(order.vendor, orderedParts, order.shippingCost, teamLabel, function (result) {
           if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
