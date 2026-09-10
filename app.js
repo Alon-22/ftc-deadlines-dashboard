@@ -2152,7 +2152,11 @@
         // actually arrives. Fire-and-forget like the sheet generation below
         // — the order/part status writes above already succeeded, so a
         // flaky inventory write shouldn't look like the whole action failed.
-        orderedParts.forEach(function (p) { adjustInventory_(p.item, 'onOrder', Number(p.qty) || 1).catch(function () {}); });
+        orderedParts.forEach(function (p) {
+          adjustInventory_(p.item, 'onOrder', Number(p.qty) || 1).catch(function (err) {
+            console.error('Could not credit onOrder inventory for "' + p.item + '":', err);
+          });
+        });
         var teamLabel = (teamConfig() || {}).label || state.team;
         createOrderSheet(order.vendor, orderedParts, order.shippingCost, teamLabel, function (result) {
           if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
