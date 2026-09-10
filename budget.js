@@ -19,6 +19,7 @@
     requestList: document.getElementById('budget-request-list'), // mentor.html only
     pendingOrdersList: document.getElementById('budget-pending-orders-list'), // mentor.html only
     ordersList: document.getElementById('budget-orders-list'),
+    bulkBar: document.getElementById('budget-bulk-bar'), // mentor.html only
     inventoryMatch: document.getElementById('add-part-inventory-match'),
   };
   if (!el.list && !el.form) return; // no Budget tab on this page
@@ -27,11 +28,18 @@
   var orders = [];
   var inventory = [];
   var expanded = null;
+  var selectedPartIds = {}; // part id -> true, mentor-only bulk-select (see el.bulkBar)
 
   DB.onData(function (data) {
     parts = data.parts || [];
     orders = data.orders || [];
     inventory = data.inventory || [];
+    // Drop selections for parts that no longer exist (deleted, or folded
+    // into an order and gone from the plain list) so a stale id never
+    // silently rides along into the next bulk apply.
+    Object.keys(selectedPartIds).forEach(function (id) {
+      if (!parts.some(function (p) { return p.id === id; })) delete selectedPartIds[id];
+    });
     render();
   });
 
@@ -211,10 +219,83 @@
 
   function render() {
     if (el.summary) renderSummary();
+    if (el.bulkBar) renderBulkBar();
     if (el.list) renderList();
     if (el.requestList) renderRequestSection();
     if (el.pendingOrdersList) renderPendingOrders();
     if (el.ordersList) renderOrders();
+  }
+
+  // ===== Bulk status change (mentor-only — see el.bulkBar) ===================
+  // Selecting parts one at a time to fix a batch of miscategorized rows (a
+  // vendor page that reported "in stock" wrong, a cart marked Ordered before
+  // it should've been, etc.) doesn't scale past a couple of items — this
+  // lets a mentor check off a pile of rows and flip them all to one status
+  // in a single write (see app.js's bulkUpdatePartStatus).
+
+  function renderBulkBar() {
+    el.bulkBar.innerHTML = '';
+    if (!parts.length) return;
+    var ids = Object.keys(selectedPartIds);
+
+    var bar = document.createElement('div');
+    bar.className = 'bulk-actions-bar';
+
+    var countSpan = document.createElement('span');
+    countSpan.className = 'card-meta';
+    countSpan.textContent = ids.length + (ids.length === 1 ? ' part selected' : ' parts selected');
+    bar.appendChild(countSpan);
+
+    var selectAllBtn = document.createElement('button');
+    selectAllBtn.type = 'button';
+    selectAllBtn.className = 'secondary';
+    selectAllBtn.textContent = 'Select all';
+    selectAllBtn.addEventListener('click', function () {
+      parts.forEach(function (p) { selectedPartIds[p.id] = true; });
+      render();
+    });
+    bar.appendChild(selectAllBtn);
+
+    var clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'secondary';
+    clearBtn.textContent = 'Clear selection';
+    clearBtn.disabled = !ids.length;
+    clearBtn.addEventListener('click', function () {
+      selectedPartIds = {};
+      render();
+    });
+    bar.appendChild(clearBtn);
+
+    var statusSelect = document.createElement('select');
+    STATUSES.forEach(function (s) {
+      var opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      statusSelect.appendChild(opt);
+    });
+    bar.appendChild(statusSelect);
+
+    var applyBtn = document.createElement('button');
+    applyBtn.type = 'button';
+    applyBtn.textContent = 'Apply to selected';
+    applyBtn.disabled = !ids.length;
+    applyBtn.addEventListener('click', function () {
+      var currentIds = Object.keys(selectedPartIds);
+      if (!currentIds.length) return;
+      var status = statusSelect.value;
+      if (!window.confirm('Set ' + currentIds.length + (currentIds.length === 1 ? ' part' : ' parts') + ' to "' + status + '"?')) return;
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Applying…';
+      DB.post('bulkUpdatePartStatus', null, { partIds: currentIds, status: status }, function (ok) {
+        if (ok) selectedPartIds = {};
+        applyBtn.disabled = false;
+        applyBtn.textContent = 'Apply to selected';
+      });
+    });
+    bar.appendChild(applyBtn);
+
+    el.bulkBar.appendChild(bar);
   }
 
   function renderSummary() {
@@ -651,6 +732,27 @@
     var row = document.createElement('div');
     row.className = 'checklist-item';
 
+    var headerRow = document.createElement('div');
+    headerRow.className = 'checklist-item-header-row';
+
+    // Bulk-select checkbox sits next to (not inside) the header button —
+    // interactive controls can't nest inside a <button>, and keeping it a
+    // sibling means a click on the checkbox never bubbles into the button's
+    // own expand/collapse handler.
+    if (el.bulkBar) {
+      var checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'bulk-select-checkbox';
+      checkbox.title = 'Select for bulk status change';
+      checkbox.checked = !!selectedPartIds[part.id];
+      checkbox.addEventListener('change', function () {
+        if (checkbox.checked) selectedPartIds[part.id] = true;
+        else delete selectedPartIds[part.id];
+        render();
+      });
+      headerRow.appendChild(checkbox);
+    }
+
     var header = document.createElement('button');
     header.type = 'button';
     header.className = 'checklist-item-header';
@@ -667,7 +769,8 @@
       expanded = expanded === part.id ? null : part.id;
       render();
     });
-    row.appendChild(header);
+    headerRow.appendChild(header);
+    row.appendChild(headerRow);
 
     if (expanded === part.id) row.appendChild(buildEditPanel(part));
     return row;

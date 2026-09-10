@@ -1091,6 +1091,31 @@ section.group.group-alert h2 {
 .checklist-status-ordered { background: var(--yellow-bg); color: var(--yellow); }
 .checklist-status-received { background: var(--green-bg); color: var(--green); }
 
+/* Mentor-only bulk status change — a checkbox sits beside (not inside) the
+   existing expand/collapse header button. */
+.checklist-item-header-row {
+  display: flex;
+  align-items: center;
+}
+
+.checklist-item-header-row .checklist-item-header {
+  flex: 1;
+  width: auto;
+}
+
+.bulk-select-checkbox {
+  flex: none;
+  margin-left: 14px;
+}
+
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
 /* ===== Task dependency badge ===== */
 
 .badge.blocked-badge {

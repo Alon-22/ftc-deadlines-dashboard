@@ -2063,8 +2063,20 @@
       return teamRef_().collection('parts').doc(id).delete();
     },
 
-    // Bulk "mark this vendor's cart as ordered" after exporting a Request
-    // for Purchase — same batch-write pattern resetChecklistItems uses.
+    // Mentor-only bulk status change (see budget.js's bulk-select bar) — one
+    // write for the whole selection instead of one round-trip per part.
+    bulkUpdatePartStatus: function (id, fields) {
+      var partIds = fields.partIds || [];
+      var status = fields.status;
+      if (!partIds.length || !status) return Promise.reject(new Error('Missing partIds or status'));
+      var batch = db.batch();
+      var partsColl = teamRef_().collection('parts');
+      partIds.forEach(function (partId) {
+        batch.update(partsColl.doc(partId), { status: status });
+      });
+      return batch.commit();
+    },
+
     // ===== Orders (Budget tab: a vendor cart becomes a persistent, ==========
     // approvable entity instead of just an ad-hoc grouping of Wishlist
     // parts) =================================================================
