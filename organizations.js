@@ -24,7 +24,11 @@
   };
   if (!el.tree) return; // no Organizations tab on this page
 
-  loadTree();
+  // app.js's own DOMContentLoaded listener (registered first, since app.js
+  // loads before this file) is what actually creates the Firestore handle
+  // this tab reads — wait for that same event rather than reading it here
+  // at script-parse time, before it exists.
+  document.addEventListener('DOMContentLoaded', loadTree);
 
   function loadTree() {
     el.tree.innerHTML = '<p class="empty-state">Loading organizations…</p>';

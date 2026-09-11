@@ -100,33 +100,38 @@
   // reads the public organizations/{orgId}/teams directory in Firestore
   // (readable by anyone, signed in or not — see firestore.rules) so a team
   // created through the self-service Organizations tab shows up here with no
-  // code change or redeploy. A collectionGroup query reaches every org's
-  // teams subcollection in one read since this directory stays small.
+  // code change or redeploy. Reads organizations first, then each org's own
+  // teams subcollection directly — NOT a collectionGroup('teams') query,
+  // since that would also match the pre-existing top-level /teams/{teamId}
+  // collection (auth-required) and Firestore rejects the whole query for an
+  // unauthenticated reader unless every collection sharing that name allows
+  // the read.
   function loadTeamDirectory_(cb) {
-    db.collectionGroup('teams').get().then(function (snap) {
-      teams = snap.docs.map(function (d) {
-        var data = d.data();
-        return { key: d.id, label: data.label || data.name || d.id, orgId: data.orgId };
+    loadOrgTree(function (orgs, err) {
+      if (err) return cb(err);
+      teams = [];
+      orgs.forEach(function (org) {
+        org.teams.forEach(function (t) { teams.push({ key: t.key, label: t.label, orgId: org.id }); });
       });
       teams.sort(function (a, b) { return a.label.localeCompare(b.label); });
       cb(null);
-    }).catch(function (err) { cb(err.message || String(err)); });
+    });
   }
 
-  // Same public directory as loadTeamDirectory_ above, reshaped as an
+  // Same public directory as loadTeamDirectory_ above, shaped as an
   // org -> teams tree for the mentor-only Organizations tab (organizations.js).
   function loadOrgTree(cb) {
     db.collection('organizations').get().then(function (orgsSnap) {
       var orgs = orgsSnap.docs.map(function (d) { return { id: d.id, name: d.data().name || d.id, teams: [] }; });
-      var byOrg = {};
-      orgs.forEach(function (o) { byOrg[o.id] = o; });
-      return db.collectionGroup('teams').get().then(function (teamsSnap) {
-        teamsSnap.docs.forEach(function (d) {
-          var data = d.data();
-          var org = byOrg[data.orgId];
-          if (org) org.teams.push({ key: d.id, name: data.name || d.id, label: data.label || data.name || d.id });
+      return Promise.all(orgs.map(function (org) {
+        return db.collection('organizations').doc(org.id).collection('teams').get().then(function (teamsSnap) {
+          teamsSnap.docs.forEach(function (d) {
+            var data = d.data();
+            org.teams.push({ key: d.id, name: data.name || d.id, label: data.label || data.name || d.id });
+          });
+          org.teams.sort(function (a, b) { return a.label.localeCompare(b.label); });
         });
-        orgs.forEach(function (o) { o.teams.sort(function (a, b) { return a.label.localeCompare(b.label); }); });
+      })).then(function () {
         orgs.sort(function (a, b) { return a.name.localeCompare(b.name); });
         cb(orgs, null);
       });
