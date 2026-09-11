@@ -6,6 +6,14 @@
 // to this org), and lets a site admin create a brand-new organization.
 // Every creation displays its freshly generated passcodes once, since
 // there's no other way to see them again short of getTeamPasscodes.
+//
+// Each team in the tree also expands into its member roster (reusing the
+// People collection app.js's People tab already reads/writes — see
+// loadTeamMembers/addTeamMember/removeTeamMember) so a mentor can add
+// students to any team in their own org right from this tree, without
+// switching teams first. Only expandable for teams in the signed-in
+// mentor's own org — firestore.rules' mentorInSameOrg is what actually
+// enforces that boundary; this is just matching UI to what will succeed.
 
 (function () {
   'use strict';
@@ -24,11 +32,28 @@
   };
   if (!el.tree) return; // no Organizations tab on this page
 
+  var expandedTeam = null; // team key whose roster panel is open, one at a time
+
   // app.js's own DOMContentLoaded listener (registered first, since app.js
   // loads before this file) is what actually creates the Firestore handle
   // this tab reads — wait for that same event rather than reading it here
   // at script-parse time, before it exists.
   document.addEventListener('DOMContentLoaded', loadTree);
+
+  // The DOMContentLoaded render above happens before a mentor still at the
+  // passcode gate has actually signed in, so DB.state.org is still null and
+  // every org looks like someone else's — every team's roster then renders
+  // as non-manageable. onData's first callback only ever fires after a real
+  // sign-in (it's what subscribeToTeam feeds), so reload once then to pick
+  // up the now-correct org — not on every later tick, or an expanded roster
+  // panel would get discarded under the mentor's hands each time any team
+  // data changes.
+  var reloadedAfterSignIn = false;
+  DB.onData(function () {
+    if (reloadedAfterSignIn) return;
+    reloadedAfterSignIn = true;
+    loadTree();
+  });
 
   function loadTree() {
     el.tree.innerHTML = '<p class="empty-state">Loading organizations…</p>';
@@ -64,14 +89,113 @@
         var list = document.createElement('ul');
         list.className = 'org-tree-teams';
         org.teams.forEach(function (team) {
-          var item = document.createElement('li');
-          item.textContent = team.label + (team.key === DB.state.team ? ' (current)' : '');
-          list.appendChild(item);
+          list.appendChild(buildTeamRow(team, org.id === DB.state.org));
         });
         section.appendChild(list);
       }
 
       el.tree.appendChild(section);
+    });
+  }
+
+  function buildTeamRow(team, isOwnOrg) {
+    var item = document.createElement('li');
+
+    var row = document.createElement('div');
+    row.className = 'org-tree-team-row';
+    var label = document.createElement('span');
+    label.textContent = team.label + (team.key === DB.state.team ? ' (current)' : '');
+    row.appendChild(label);
+
+    if (isOwnOrg) {
+      var toggleBtn = document.createElement('button');
+      toggleBtn.type = 'button';
+      toggleBtn.className = 'secondary';
+      toggleBtn.textContent = expandedTeam === team.key ? 'Hide members' : 'Members';
+      toggleBtn.addEventListener('click', function () {
+        expandedTeam = expandedTeam === team.key ? null : team.key;
+        loadTree();
+      });
+      row.appendChild(toggleBtn);
+    }
+    item.appendChild(row);
+
+    if (isOwnOrg && expandedTeam === team.key) {
+      item.appendChild(buildMembersPanel(team.key));
+    }
+
+    return item;
+  }
+
+  function buildMembersPanel(teamKey) {
+    var panel = document.createElement('div');
+    panel.className = 'org-tree-members-panel';
+
+    var list = document.createElement('div');
+    list.className = 'org-tree-members-list';
+    panel.appendChild(list);
+    loadMembersInto_(teamKey, list);
+
+    var form = document.createElement('form');
+    form.className = 'add-form org-tree-add-member-form';
+    var row = document.createElement('div');
+    row.className = 'row';
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Name';
+    nameInput.required = true;
+    row.appendChild(nameInput);
+    var emailInput = document.createElement('input');
+    emailInput.type = 'email';
+    emailInput.placeholder = 'Email (optional)';
+    row.appendChild(emailInput);
+    form.appendChild(row);
+    var addBtn = document.createElement('button');
+    addBtn.type = 'submit';
+    addBtn.textContent = 'Add member';
+    form.appendChild(addBtn);
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = nameInput.value.trim();
+      if (!name) return;
+      DB.addTeamMember(teamKey, name, emailInput.value.trim(), function (ok) {
+        if (ok) { form.reset(); loadMembersInto_(teamKey, list); }
+      });
+    });
+    panel.appendChild(form);
+
+    return panel;
+  }
+
+  function loadMembersInto_(teamKey, list) {
+    list.innerHTML = '<p class="card-meta">Loading members…</p>';
+    DB.loadTeamMembers(teamKey, function (members, err) {
+      list.innerHTML = '';
+      if (err) {
+        list.innerHTML = '<p class="empty-state">Could not load members: ' + DB.escapeHtml(err) + '</p>';
+        return;
+      }
+      if (!members.length) {
+        list.innerHTML = '<p class="empty-state">No members added yet.</p>';
+        return;
+      }
+      members.forEach(function (m) {
+        var row = document.createElement('div');
+        row.className = 'org-tree-member-row';
+        var text = document.createElement('span');
+        text.textContent = m.name + (m.email ? ' — ' + m.email : '');
+        row.appendChild(text);
+        var removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'secondary';
+        removeBtn.textContent = 'Remove';
+        removeBtn.addEventListener('click', function () {
+          DB.removeTeamMember(teamKey, m.id, function () { loadMembersInto_(teamKey, list); });
+        });
+        row.appendChild(removeBtn);
+        list.appendChild(row);
+      });
     });
   }
 

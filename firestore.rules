@@ -21,6 +21,17 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.org == orgId;
     }
 
+    // A mentor managing the Organizations tab's team roster needs to reach
+    // another team's People collection without being signed into that team
+    // — true only for a team actually registered under the mentor's own
+    // org, checked via the public org/team directory below (a lookup, not a
+    // trust boundary widening: /teams/{teamId} isn't nested under org, so
+    // this is the only way to prove "same org" for a team that isn't self).
+    function mentorInSameOrg(teamId) {
+      return isMentor() && request.auth.token.org != null &&
+        exists(/databases/$(database)/documents/organizations/$(request.auth.token.org)/teams/$(teamId));
+    }
+
     // Team doc itself: readable once signed in for that team, never
     // writable by the app — only by us directly (console / migration
     // script), same trust boundary as editing TEAMS in Code.gs today.
@@ -78,10 +89,12 @@ service cloud.firestore {
     // Phase 3: the People directory (name -> email, feeds Code.gs's daily
     // digest email) holds contact info, so only a mentor curates it —
     // both roles can still read it since it's just names already visible
-    // on goals.
+    // on goals. A mentor also doubles this as the team's member roster,
+    // manageable for any team in their own org from the Organizations tab
+    // (mentorInSameOrg), not just the team they're currently signed into.
     match /teams/{teamId}/people/{id} {
-      allow read: if signedInAs(teamId);
-      allow write: if signedInAs(teamId) && isMentor();
+      allow read: if signedInAs(teamId) || mentorInSameOrg(teamId);
+      allow write: if (signedInAs(teamId) && isMentor()) || mentorInSameOrg(teamId);
     }
 
     // Phase 4: the parts & budget tracker — both roles, same open

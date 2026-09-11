@@ -138,6 +138,34 @@
     }).catch(function (err) { cb(null, err.message || String(err)); });
   }
 
+  // ===== Cross-team roster access for the Organizations tab ===================
+  // The People collection (name/email, /teams/{teamId}/people) already IS
+  // each team's member roster — these reuse it for any team key rather than
+  // only the currently signed-in team (teamRef_()), so a mentor can manage
+  // a sibling team's roster from the Organizations tab without switching
+  // teams. Firestore rules gate this to teams in the mentor's own org
+  // (mentorInSameOrg) — see firestore.rules.
+
+  function loadTeamMembers(teamKey, cb) {
+    db.collection('teams').doc(teamKey).collection('people').get().then(function (snap) {
+      var people = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      people.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+      cb(people, null);
+    }).catch(function (err) { cb(null, err.message || String(err)); });
+  }
+
+  function addTeamMember(teamKey, name, email, cb) {
+    db.collection('teams').doc(teamKey).collection('people').add({ name: name, email: email || '' })
+      .then(function () { cb(true, null); })
+      .catch(function (err) { cb(false, err.message || String(err)); });
+  }
+
+  function removeTeamMember(teamKey, memberId, cb) {
+    db.collection('teams').doc(teamKey).collection('people').doc(memberId).delete()
+      .then(function () { cb(true, null); })
+      .catch(function (err) { cb(false, err.message || String(err)); });
+  }
+
   function cacheEls() {
     el.main = document.getElementById('main');
     el.teamSelect = document.getElementById('team-select');
@@ -2490,6 +2518,9 @@
     createOrganization: createOrganization,
     getTeamPasscodes: getTeamPasscodes,
     loadOrgTree: loadOrgTree,
+    loadTeamMembers: loadTeamMembers,
+    addTeamMember: addTeamMember,
+    removeTeamMember: removeTeamMember,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every
