@@ -18,9 +18,10 @@
   'use strict';
 
   var VIEW = window.DASHBOARD_VIEW || 'student';
-  var teams = window.TEAMS || [];
+  var teams = []; // populated from the organizations/{orgId}/teams Firestore directory, see loadTeamDirectory_
   var state = {
     team: null,
+    org: null, // set from the signed-in token's org claim once signed in, see ensureSignedIn
     passcode: sessionStorage.getItem('passcode:' + VIEW) || '',
     data: null,
     filterGroup: '',
@@ -41,46 +42,95 @@
     cacheEls();
     initTabs();
 
-    if (!teams.length) {
-      el.main.innerHTML = '<p class="empty-state">No teams configured yet — add one to config/teams.js.</p>';
-      return;
-    }
-
     var app = firebase.initializeApp(window.FIREBASE_CONFIG);
     auth = app.auth();
     db = app.firestore();
 
-    teams.forEach(function (t) {
-      var opt = document.createElement('option');
-      opt.value = t.key;
-      opt.textContent = t.label;
-      el.teamSelect.appendChild(opt);
+    el.teamSelect.disabled = true;
+    var loadingOpt = document.createElement('option');
+    loadingOpt.textContent = 'Loading teams…';
+    el.teamSelect.appendChild(loadingOpt);
+
+    loadTeamDirectory_(function (err) {
+      el.teamSelect.disabled = false;
+      el.teamSelect.innerHTML = '';
+
+      if (err || !teams.length) {
+        el.main.innerHTML = '<p class="empty-state">' + escapeHtml(err
+          ? 'Could not load the team directory: ' + err
+          : 'No teams yet — a mentor can add one from the Organizations tab.') + '</p>';
+        return;
+      }
+
+      teams.forEach(function (t) {
+        var opt = document.createElement('option');
+        opt.value = t.key;
+        opt.textContent = t.label;
+        el.teamSelect.appendChild(opt);
+      });
+
+      var lastTeam = localStorage.getItem('lastTeam:' + VIEW);
+      state.team = teams.some(function (t) { return t.key === lastTeam; }) ? lastTeam : teams[0].key;
+      el.teamSelect.value = state.team;
+      el.teamSelect.addEventListener('change', function () {
+        state.team = el.teamSelect.value;
+        localStorage.setItem('lastTeam:' + VIEW, state.team);
+        switchTeam();
+      });
+
+      if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
+      if (el.addGoalForm) el.addGoalForm.addEventListener('submit', onAddGoal);
+      if (el.addTeamGoalForm) el.addTeamGoalForm.addEventListener('submit', onAddTeamGoal);
+      if (el.addGoalForm) wireDifficultyEstimate(el.addGoalForm, el.addGoalPointsStatus);
+      if (el.addTeamGoalForm) wireDifficultyEstimate(el.addTeamGoalForm, el.addTeamGoalPointsStatus);
+      if (el.addNoteForm) el.addNoteForm.addEventListener('submit', onAddNote);
+      if (el.addGoalOwner) el.addGoalOwner.addEventListener('change', function () { toggleOther(el.addGoalOwner, el.addGoalOwnerOther); });
+      if (el.addGoalGroup) el.addGoalGroup.addEventListener('change', function () { toggleOther(el.addGoalGroup, el.addGoalGroupOther); });
+      if (el.addTeamGoalGroup) el.addTeamGoalGroup.addEventListener('change', function () { toggleOther(el.addTeamGoalGroup, el.addTeamGoalGroupOther); });
+
+      if (VIEW === 'mentor' && !state.passcode) {
+        showGate();
+      } else {
+        switchTeam();
+      }
     });
+  }
 
-    var lastTeam = localStorage.getItem('lastTeam:' + VIEW);
-    state.team = teams.some(function (t) { return t.key === lastTeam; }) ? lastTeam : teams[0].key;
-    el.teamSelect.value = state.team;
-    el.teamSelect.addEventListener('change', function () {
-      state.team = el.teamSelect.value;
-      localStorage.setItem('lastTeam:' + VIEW, state.team);
-      switchTeam();
-    });
+  // The team picker used to come from a static config/teams.js array; it now
+  // reads the public organizations/{orgId}/teams directory in Firestore
+  // (readable by anyone, signed in or not — see firestore.rules) so a team
+  // created through the self-service Organizations tab shows up here with no
+  // code change or redeploy. A collectionGroup query reaches every org's
+  // teams subcollection in one read since this directory stays small.
+  function loadTeamDirectory_(cb) {
+    db.collectionGroup('teams').get().then(function (snap) {
+      teams = snap.docs.map(function (d) {
+        var data = d.data();
+        return { key: d.id, label: data.label || data.name || d.id, orgId: data.orgId };
+      });
+      teams.sort(function (a, b) { return a.label.localeCompare(b.label); });
+      cb(null);
+    }).catch(function (err) { cb(err.message || String(err)); });
+  }
 
-    if (el.addDeadlineForm) el.addDeadlineForm.addEventListener('submit', onAddDeadline);
-    if (el.addGoalForm) el.addGoalForm.addEventListener('submit', onAddGoal);
-    if (el.addTeamGoalForm) el.addTeamGoalForm.addEventListener('submit', onAddTeamGoal);
-    if (el.addGoalForm) wireDifficultyEstimate(el.addGoalForm, el.addGoalPointsStatus);
-    if (el.addTeamGoalForm) wireDifficultyEstimate(el.addTeamGoalForm, el.addTeamGoalPointsStatus);
-    if (el.addNoteForm) el.addNoteForm.addEventListener('submit', onAddNote);
-    if (el.addGoalOwner) el.addGoalOwner.addEventListener('change', function () { toggleOther(el.addGoalOwner, el.addGoalOwnerOther); });
-    if (el.addGoalGroup) el.addGoalGroup.addEventListener('change', function () { toggleOther(el.addGoalGroup, el.addGoalGroupOther); });
-    if (el.addTeamGoalGroup) el.addTeamGoalGroup.addEventListener('change', function () { toggleOther(el.addTeamGoalGroup, el.addTeamGoalGroupOther); });
-
-    if (VIEW === 'mentor' && !state.passcode) {
-      showGate();
-    } else {
-      switchTeam();
-    }
+  // Same public directory as loadTeamDirectory_ above, reshaped as an
+  // org -> teams tree for the mentor-only Organizations tab (organizations.js).
+  function loadOrgTree(cb) {
+    db.collection('organizations').get().then(function (orgsSnap) {
+      var orgs = orgsSnap.docs.map(function (d) { return { id: d.id, name: d.data().name || d.id, teams: [] }; });
+      var byOrg = {};
+      orgs.forEach(function (o) { byOrg[o.id] = o; });
+      return db.collectionGroup('teams').get().then(function (teamsSnap) {
+        teamsSnap.docs.forEach(function (d) {
+          var data = d.data();
+          var org = byOrg[data.orgId];
+          if (org) org.teams.push({ key: d.id, name: data.name || d.id, label: data.label || data.name || d.id });
+        });
+        orgs.forEach(function (o) { o.teams.sort(function (a, b) { return a.label.localeCompare(b.label); }); });
+        orgs.sort(function (a, b) { return a.name.localeCompare(b.name); });
+        cb(orgs, null);
+      });
+    }).catch(function (err) { cb(null, err.message || String(err)); });
   }
 
   function cacheEls() {
@@ -188,7 +238,7 @@
   function mintToken_(passcode, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
-    var url = team.webAppUrl + '?action=mintToken&team=' + encodeURIComponent(state.team) +
+    var url = window.WEB_APP_URL + '?action=mintToken&team=' + encodeURIComponent(state.team) +
         '&view=' + VIEW + '&passcode=' + encodeURIComponent(passcode || '');
     fetch(url)
       .then(function (r) { return r.json(); })
@@ -206,6 +256,14 @@
         .then(function () {
           state.passcode = passcode || '';
           sessionStorage.setItem('passcode:' + VIEW, state.passcode);
+          // A fresh token is minted on every sign-in above (never reused from
+          // a previous session), so its claims are always current — this
+          // just reads the org claim Code.gs's mintToken_ embedded, rather
+          // than looking it up separately client-side.
+          return auth.currentUser.getIdTokenResult();
+        })
+        .then(function (idTokenResult) {
+          state.org = (idTokenResult.claims && idTokenResult.claims.org) || null;
           cb(null);
         })
         .catch(function (e) { cb(e.message); });
@@ -244,7 +302,7 @@
     if (!team) return cb(null, 'No team selected');
     resizeImageToBase64_(file, function (base64Data, mimeType, err) {
       if (err) return cb(null, err);
-      fetch(team.webAppUrl, {
+      fetch(window.WEB_APP_URL, {
         method: 'POST',
         body: JSON.stringify({
           action: 'uploadPhoto',
@@ -272,7 +330,7 @@
   function lookupPartPrice(url, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
-    fetch(team.webAppUrl, {
+    fetch(window.WEB_APP_URL, {
       method: 'POST',
       body: JSON.stringify({
         action: 'lookupPartPrice',
@@ -297,7 +355,7 @@
   function sendPurchaseRequestEmail(to, subject, body, cb) {
     var team = teamConfig();
     if (!team) return cb(false, 'No team selected');
-    fetch(team.webAppUrl, {
+    fetch(window.WEB_APP_URL, {
       method: 'POST',
       body: JSON.stringify({
         action: 'sendPurchaseRequestEmail',
@@ -319,7 +377,7 @@
   function createOrderSheet(vendor, parts, shippingCost, teamLabel, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
-    fetch(team.webAppUrl, {
+    fetch(window.WEB_APP_URL, {
       method: 'POST',
       body: JSON.stringify({
         action: 'createOrderSheet',
@@ -349,7 +407,7 @@
   function estimateDifficulty(title, notes, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
-    fetch(team.webAppUrl, {
+    fetch(window.WEB_APP_URL, {
       method: 'POST',
       body: JSON.stringify({
         action: 'estimateDifficulty',
@@ -374,7 +432,7 @@
   function reviewGoal(title, owner, notes, targetDate, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
-    fetch(team.webAppUrl, {
+    fetch(window.WEB_APP_URL, {
       method: 'POST',
       body: JSON.stringify({
         action: 'reviewGoal',
@@ -388,6 +446,73 @@
       .then(function (json) {
         if (!json.ok) return cb(null, json.error);
         cb({ owned: json.owned, scoped: json.scoped, checkable: json.checkable, suggestedTitle: json.suggestedTitle }, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // ===== Self-service organizations & teams (mentor-only, see organizations.js) ==
+
+  // Adds a new team to an org you're already mentoring in — gated on an
+  // existing mentor passcode for a team already in that org, checked
+  // server-side by Code.gs's createTeam_ (which also verifies that team
+  // really belongs to orgId, so a valid passcode from a different org can't
+  // be replayed here). Returns the two freshly generated passcodes once.
+  function createTeam(orgId, existingTeamKey, mentorPasscode, name, label, cb) {
+    fetch(window.WEB_APP_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'createTeam',
+        team: existingTeamKey,
+        view: 'mentor',
+        passcode: mentorPasscode,
+        fields: { orgId: orgId, name: name, label: label },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb(json, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // Creates a brand-new organization plus its first team — gated behind a
+  // site-admin passcode (only you hold this one; there's no existing
+  // trusted mentor to gate a first-ever org behind).
+  function createOrganization(siteAdminPasscode, orgName, name, label, cb) {
+    fetch(window.WEB_APP_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'createOrganization',
+        passcode: siteAdminPasscode,
+        fields: { orgName: orgName, name: name, label: label },
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb(json, null);
+      })
+      .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // Looks up a team's own passcodes again later, for a mentor who's already
+  // signed in as that team but has misplaced them.
+  function getTeamPasscodes(teamKey, mentorPasscode, cb) {
+    fetch(window.WEB_APP_URL, {
+      method: 'POST',
+      body: JSON.stringify({
+        action: 'getTeamPasscodes',
+        team: teamKey,
+        view: 'mentor',
+        passcode: mentorPasscode,
+        fields: {},
+      }),
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (json) {
+        if (!json.ok) return cb(null, json.error);
+        cb(json, null);
       })
       .catch(function (err) { cb(null, String(err)); });
   }
@@ -513,12 +638,12 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
-    // Inventory is the one collection that isn't scoped under this team —
-    // it's shared across every team registered in this Firebase project on
-    // purpose (a pooled parts stock), so it's read straight off the root
-    // `db`, not `teamRef`. Security rules gate it on "signed in as some
-    // team", not "signed in as this specific team".
-    unsubscribers.push(db.collection('inventory').onSnapshot(function (snap) {
+    // Inventory is scoped per organization, not per team — every team inside
+    // the same org (e.g. multiple teams under one school) pools the same
+    // physical parts stock, so it's read off `orgRef_()`, not `teamRef`.
+    // Security rules gate it on "signed in as this org", not this specific
+    // team.
+    unsubscribers.push(orgRef_().collection('inventory').onSnapshot(function (snap) {
       ensureData_().inventory = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
       recomputeAndRender();
     }, onSnapshotError_));
@@ -1632,6 +1757,10 @@
     return db.collection('teams').doc(state.team);
   }
 
+  function orgRef_() {
+    return db.collection('organizations').doc(state.org);
+  }
+
   // A recurring goal (repeats != 'none') spawns a fresh, Not-started copy of
   // itself the moment it's marked Done — same title/owner/subteam, target
   // date advanced by the interval, notes and blocker cleared since those
@@ -1679,7 +1808,7 @@
     var trimmed = (name || '').trim();
     if (!trimmed || !delta) return Promise.resolve();
     var normalized = trimmed.toLowerCase();
-    return db.collection('inventory').where('nameLower', '==', normalized).limit(1).get().then(function (snap) {
+    return orgRef_().collection('inventory').where('nameLower', '==', normalized).limit(1).get().then(function (snap) {
       if (!snap.empty) {
         var doc = snap.docs[0];
         var patch = { lastUpdated: new Date().toISOString() };
@@ -1689,7 +1818,7 @@
       if (delta <= 0) return Promise.resolve(); // nothing to create for a pure decrement with no existing row
       var newDoc = { name: trimmed, nameLower: normalized, quantity: 0, onOrder: 0, location: '', lastUpdated: new Date().toISOString() };
       newDoc[field] = delta;
-      return db.collection('inventory').add(newDoc);
+      return orgRef_().collection('inventory').add(newDoc);
     });
   }
 
@@ -2187,15 +2316,15 @@
         });
     },
 
-    // ===== Shared cross-team inventory =======================================
-    // Not scoped under any one team on purpose — every team registered in
-    // this project pools the same parts stock, and can each check items in
-    // and out of it (see subscribeToTeam's inventory listener, read straight
-    // off the root db instead of teamRef).
+    // ===== Org-scoped shared inventory ========================================
+    // Scoped per organization, not per team — every team inside the same org
+    // pools the same parts stock, and can each check items in and out of it
+    // (see subscribeToTeam's inventory listener, read off orgRef_() instead
+    // of teamRef_()).
 
     addInventoryItem: function (id, fields) {
       var name = (fields.name || '').trim();
-      return db.collection('inventory').add({
+      return orgRef_().collection('inventory').add({
         name: name,
         nameLower: name.toLowerCase(),
         quantity: Number(fields.quantity) || 0,
@@ -2211,11 +2340,11 @@
       if ('quantity' in fields) patch.quantity = Number(fields.quantity) || 0;
       if ('onOrder' in fields) patch.onOrder = Number(fields.onOrder) || 0;
       if ('name' in fields) { patch.name = fields.name; patch.nameLower = (fields.name || '').trim().toLowerCase(); }
-      return db.collection('inventory').doc(id).update(patch);
+      return orgRef_().collection('inventory').doc(id).update(patch);
     },
 
     deleteInventoryItem: function (id) {
-      return db.collection('inventory').doc(id).delete();
+      return orgRef_().collection('inventory').doc(id).delete();
     },
 
     // qty here is always positive; checkout subtracts, return adds. Both
@@ -2227,16 +2356,16 @@
       var item = (state.data.inventory || []).filter(function (i) { return i.id === id; })[0];
       if (!item) return Promise.reject(new Error('Item not found'));
       var newQty = Math.max(0, (item.quantity || 0) - qty);
-      return db.collection('inventory').doc(id).update({ quantity: newQty, lastUpdated: new Date().toISOString() })
-        .then(function () { return db.collection('inventory').doc(id).collection('log').add({ type: 'checkout', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
+      return orgRef_().collection('inventory').doc(id).update({ quantity: newQty, lastUpdated: new Date().toISOString() })
+        .then(function () { return orgRef_().collection('inventory').doc(id).collection('log').add({ type: 'checkout', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
     },
 
     returnInventoryItem: function (id, fields) {
       var qty = Number(fields.qty) || 1;
       var item = (state.data.inventory || []).filter(function (i) { return i.id === id; })[0];
       if (!item) return Promise.reject(new Error('Item not found'));
-      return db.collection('inventory').doc(id).update({ quantity: (item.quantity || 0) + qty, lastUpdated: new Date().toISOString() })
-        .then(function () { return db.collection('inventory').doc(id).collection('log').add({ type: 'return', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
+      return orgRef_().collection('inventory').doc(id).update({ quantity: (item.quantity || 0) + qty, lastUpdated: new Date().toISOString() })
+        .then(function () { return orgRef_().collection('inventory').doc(id).collection('log').add({ type: 'return', teamId: state.team, qty: qty, at: new Date().toISOString() }); });
     },
   };
 
@@ -2352,6 +2481,10 @@
     sendPurchaseRequestEmail: sendPurchaseRequestEmail,
     estimateDifficulty: estimateDifficulty,
     reviewGoal: reviewGoal,
+    createTeam: createTeam,
+    createOrganization: createOrganization,
+    getTeamPasscodes: getTeamPasscodes,
+    loadOrgTree: loadOrgTree,
     // Registers fn(data) to run after every successful load() (including
     // the first one) — the simplest way for a tab to stay in sync without
     // its own fetch logic. Data volume here is a few dozen rows, so every

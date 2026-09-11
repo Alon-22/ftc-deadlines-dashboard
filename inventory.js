@@ -1,9 +1,9 @@
-// inventory.js — Inventory tab: the shared cross-team parts pool. Unlike
-// budget.js's per-team parts list, this reads/writes the top-level
-// `inventory` collection directly (see app.js's subscribeToTeam and
-// WRITE_HANDLERS.*InventoryItem), so every team sees the same stock and can
-// check items in or out of it. Talks to the rest of the app only through
-// window.DB.
+// inventory.js — Inventory tab: the org-scoped shared parts pool. Unlike
+// budget.js's per-team parts list, this reads/writes the current
+// organization's `inventory` collection directly (see app.js's
+// subscribeToTeam and WRITE_HANDLERS.*InventoryItem), so every team inside
+// the same org sees the same stock and can check items in or out of it.
+// Talks to the rest of the app only through window.DB.
 
 (function () {
   'use strict';

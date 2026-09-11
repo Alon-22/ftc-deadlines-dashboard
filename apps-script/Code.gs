@@ -27,11 +27,11 @@
 function handleRequest_(e, isPost) {
   if (!TEAMS.MysteryMeat.purchaseSheetId) TEAMS.MysteryMeat.purchaseSheetId = '1NS1B9wblAvoalq04AKr5GUICudRIfcNHSGIQuXUWGwY';
   var result;
-  try { var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {}); if (params.action === 'mintToken') { result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode); } else if (params.action === 'uploadPhoto') { result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'lookupPartPrice') { result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'sendPurchaseRequestEmail') { result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrderSheet') { result = createOrderSheet_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'estimateDifficulty') { result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'reviewGoal') { result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else { result = isPost ? handleWrite_(params) : handleRead_(params); } } catch (err) { result = { ok: false, error: String(err && err.message ? err.message : err) }; }
+  try { var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {}); if (params.action === 'mintToken') { result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode); } else if (params.action === 'uploadPhoto') { result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'lookupPartPrice') { result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'sendPurchaseRequestEmail') { result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrderSheet') { result = createOrderSheet_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'estimateDifficulty') { result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'reviewGoal') { result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createTeam') { result = createTeam_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrganization') { result = createOrganization_(params.passcode, params.fields || {}); } else if (params.action === 'getTeamPasscodes') { result = getTeamPasscodes_(params.team, params.passcode); } else { result = isPost ? handleWrite_(params) : handleRead_(params); } } catch (err) { result = { ok: false, error: String(err && err.message ? err.message : err) }; }
   return jsonOut_(result);
   }
   function createOrderSheet_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) { return { ok: false, error: 'Invalid or missing passcode' }; }
   if (!team.purchaseSheetId) return { ok: false, error: 'No purchase sheet configured for this team' };
@@ -74,13 +74,155 @@ const TEAMS = {
     calendarId: 'c_75dae7e7b71d6c86414525f344f9018a0b245cc08756965c47c23fbc47e812f7@group.calendar.google.com',
     mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
     driveFolderId: '0AJC_ts9JONRuUk9PVA', // Shared Drive — uploadPhoto_ creates a subfolder in here, not in My Drive
+    org: 'BWS', // organization this team belongs to — see teamConfig_/the Organizations tab
   },
   // example: {
   //   sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
   //   calendarId: null, // fill in once the work-sessions calendar is shared
   //   mentors: ['Mr. Belkin', 'Zoe'], // exact names as they appear in "Whose goal" / owner columns
+  //   org: 'BWS',
   // },
 };
+
+// ===== Dynamic team/org registry ============================================
+// TEAMS above stays as the original hardcoded entry (untouched, for
+// backward compat) — every NEW team created through the self-service
+// "Organizations" tab is stored as one JSON-encoded Script Property
+// instead (TEAMCFG_<teamKey>), the same mechanism the passcodes already
+// use. teamConfig_() is the one place that knows to check both, and every
+// action handler below reads team config through it instead of TEAMS
+// directly, so a dynamically-created team works everywhere a hardcoded
+// one does.
+
+function teamConfig_(teamKey) {
+  if (TEAMS[teamKey]) return TEAMS[teamKey];
+  var raw = PropertiesService.getScriptProperties().getProperty('TEAMCFG_' + teamKey);
+  return raw ? JSON.parse(raw) : null;
+}
+
+function setTeamConfig_(teamKey, config) {
+  PropertiesService.getScriptProperties().setProperty('TEAMCFG_' + teamKey, JSON.stringify(config));
+}
+
+function teamKeyExists_(teamKey) {
+  if (TEAMS[teamKey]) return true;
+  if (PropertiesService.getScriptProperties().getProperty('TEAMCFG_' + teamKey)) return true;
+  return !!firestoreGetDoc_('teams/' + teamKey);
+}
+
+// A team/org key becomes a Firestore document ID segment AND a Script
+// Property name suffix, so it needs to be safe for both — strip
+// everything except letters/digits rather than trying to allow-list every
+// separately-risky character (a "/" would let a typo write into an
+// unrelated Firestore path; a "." risks the reserved "." / ".." segment
+// names).
+function slugify_(name) {
+  return String(name || '').trim().replace(/[^A-Za-z0-9]+/g, '');
+}
+
+// ===== Self-service organizations & teams ===================================
+// Onboarding a team used to mean hand-editing TEAMS in this file, setting
+// Script Properties by hand, and redeploying — see the file header. This
+// lets a mentor already in an org do it themselves: createTeam_ checks an
+// EXISTING team's mentor passcode (proving they're already trusted in that
+// org) and that its own config really does belong to the org being asked
+// for (so a valid passcode from one org can't be replayed to bootstrap a
+// team inside a different one), then mints a brand new team with its own
+// fresh passcodes. Team keys are global — /teams/{teamId} isn't nested
+// under org — so teamKeyExists_ checks across every org, not just this one.
+
+function createTeam_(teamKey, view, passcode, fields) {
+  var orgId = fields.orgId;
+  if (!orgId) return { ok: false, error: 'Missing orgId' };
+  var existing = teamConfig_(teamKey);
+  if (!existing) return { ok: false, error: 'Unknown team: ' + teamKey };
+  if (!checkPasscode_(teamKey, 'mentor', passcode)) {
+    return { ok: false, error: 'Invalid or missing mentor passcode' };
+  }
+  if ((existing.org || '') !== orgId) {
+    return { ok: false, error: 'That team is not part of this organization' };
+  }
+  return createTeamInOrg_(orgId, fields.name, fields.label);
+}
+
+// Shared by createTeam_ (an existing mentor adding a team to their own
+// org) and createOrganization_ (a brand-new org's first team) — mints
+// fresh passcodes and a purchase-tracking sheet, and writes every piece
+// of state a team needs to actually work: its Script-Property config, its
+// passcodes, its public org/team directory entry, and the legacy global
+// /teams/{teamId} doc (mentors/calendarId) that app.js's subscribeToTeam
+// already reads for isMentorOwned filtering and "email the coaches" —
+// skipping that doc would silently leave a new team's mentor list empty
+// forever, since nothing else ever writes it.
+function createTeamInOrg_(orgId, teamName, teamLabel) {
+  var key = slugify_(teamName);
+  if (!key) return { ok: false, error: 'Team name must include at least one letter or number' };
+  if (teamKeyExists_(key)) return { ok: false, error: 'A team called "' + key + '" already exists — pick a different name' };
+
+  var studentPasscode = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+  var mentorPasscode = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+  var sheet = SpreadsheetApp.create(teamLabel || teamName || key);
+
+  setTeamConfig_(key, {
+    org: orgId,
+    mentors: [],
+    driveFolderId: null,
+    calendarId: null,
+    purchaseSheetId: sheet.getId(),
+  });
+  setPasscode_(key, 'student', studentPasscode);
+  setPasscode_(key, 'mentor', mentorPasscode);
+
+  firestoreSetDoc_('organizations/' + orgId + '/teams/' + key, firestoreFields_({
+    name: teamName || key,
+    label: teamLabel || teamName || key,
+    orgId: orgId,
+  }));
+  firestoreSetDoc_('teams/' + key, firestoreFields_({ calendarId: '', mentors: [] }));
+
+  return { ok: true, teamKey: key, studentPasscode: studentPasscode, mentorPasscode: mentorPasscode };
+}
+
+// Gated by a separate site-admin passcode (setSiteAdminPasscode_), not a
+// team passcode — a brand-new org has no existing trusted mentor to gate
+// behind, and the site is public.
+function createOrganization_(siteAdminPasscode, fields) {
+  var expected = PropertiesService.getScriptProperties().getProperty('SITE_ADMIN_PASSCODE');
+  if (!expected || siteAdminPasscode !== expected) {
+    return { ok: false, error: 'Invalid or missing site-admin passcode' };
+  }
+  var orgId = slugify_(fields.orgName);
+  if (!orgId) return { ok: false, error: 'Organization name must include at least one letter or number' };
+  if (firestoreGetDoc_('organizations/' + orgId)) {
+    return { ok: false, error: 'An organization called "' + orgId + '" already exists' };
+  }
+  firestoreSetDoc_('organizations/' + orgId, firestoreFields_({ name: fields.orgName }));
+  var teamResult = createTeamInOrg_(orgId, fields.name, fields.label);
+  if (!teamResult.ok) return teamResult;
+  teamResult.orgId = orgId;
+  return teamResult;
+}
+
+// Lets a mentor who's lost their passcodes look them up again for their
+// OWN team, without needing to ask a developer — the flip side of
+// createTeam_/createOrganization_ only ever showing them once, at
+// creation time.
+function getTeamPasscodes_(teamKey, passcode) {
+  if (!checkPasscode_(teamKey, 'mentor', passcode)) {
+    return { ok: false, error: 'Invalid or missing mentor passcode' };
+  }
+  var props = PropertiesService.getScriptProperties();
+  return {
+    ok: true,
+    studentPasscode: props.getProperty('PASSCODE_STUDENT_' + teamKey) || '(no passcode set — open to anyone)',
+    mentorPasscode: props.getProperty('PASSCODE_MENTOR_' + teamKey) || '(no passcode set — open to anyone)',
+  };
+}
+
+/** Run manually (select in the editor, then Run) to set the one passcode that gates creating a brand-new organization. */
+function setSiteAdminPasscode_(passcode) {
+  PropertiesService.getScriptProperties().setProperty('SITE_ADMIN_PASSCODE', passcode);
+}
 
 // ===== Sheet schema ========================================================
 
@@ -164,7 +306,7 @@ function jsonOut_(obj) {
 function handleRead_(params) {
   var teamKey = params.team;
   var view = params.view === 'mentor' ? 'mentor' : 'student';
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
 
   if (view === 'mentor' && !checkPasscode_(teamKey, 'mentor', params.passcode)) {
@@ -352,7 +494,7 @@ function readMentorNotes_(ss) {
 function handleWrite_(params) {
   var teamKey = params.team;
   var view = params.view === 'mentor' ? 'mentor' : 'student';
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, params.passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -717,12 +859,17 @@ var FIREBASE_TOKEN_AUD =
     'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit';
 
 function mintToken_(teamKey, view, passcode) {
-  if (!TEAMS[teamKey]) return { ok: false, error: 'Unknown team: ' + teamKey };
+  var team = teamConfig_(teamKey);
+  if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
   }
   var uid = teamKey + '_' + view; // no per-user identity — everyone sharing this passcode shares this uid
-  var token = signFirebaseCustomToken_(uid, { team: teamKey, role: view });
+  // org is always read from this team's own server-side config, never
+  // accepted from the request — Firestore rules trust this claim to gate
+  // the shared per-org inventory pool, so a client can never claim to be
+  // in an org it doesn't actually belong to.
+  var token = signFirebaseCustomToken_(uid, { team: teamKey, role: view, org: team.org || null });
   return { ok: true, token: token };
 }
 
@@ -769,7 +916,7 @@ function base64UrlEncodeBytes_(bytes) {
 // doc — Code.gs never touches Firestore for this, it's pure Drive work.
 
 function uploadPhoto_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -788,7 +935,7 @@ function uploadPhoto_(teamKey, view, passcode, fields) {
 }
 
 function uploadsFolder_(teamKey) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   // Prefer a Shared Drive over My Drive when configured — a folder that
   // lives under one person's account is a single point of failure for a
   // team resource, and Shared Drives are free (no Blaze plan needed).
@@ -809,7 +956,7 @@ function uploadsFolder_(teamKey) {
 // this only ever returns what's actually printed on the page.
 
 function lookupPartPrice_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -932,7 +1079,7 @@ function decodeHtmlEntities_(s) {
 // ever does the one thing only Code.gs can do, which is actually send mail.
 
 function sendPurchaseRequestEmail_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -1011,7 +1158,7 @@ function callGemini_(prompt, maxOutputTokens) {
 }
 
 function estimateDifficulty_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -1041,7 +1188,7 @@ function estimateDifficulty_(teamKey, view, passcode, fields) {
 // themselves.
 
 function reviewGoal_(teamKey, view, passcode, fields) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) {
     return { ok: false, error: 'Invalid or missing passcode' };
@@ -1246,6 +1393,43 @@ function firestoreParseDoc_(doc) {
 }
 
 /**
+ * Run manually from the editor, once, to introduce the organization layer
+ * for the one existing team: creates organizations/BWS + its team
+ * directory entry, and copies every existing top-level inventory doc (and
+ * its log subcollection) into organizations/BWS/inventory/* with the same
+ * document IDs. Deliberately does NOT delete the old top-level inventory
+ * docs or touch firestore.rules' old inventory rule — that's a separate,
+ * later step once the app is confirmed reading/writing the new path
+ * correctly (see the plan's rollout order).
+ */
+function setupOrgLayer_() {
+  var orgId = 'BWS';
+  firestoreSetDoc_('organizations/' + orgId, firestoreFields_({ name: 'BWS' }));
+  firestoreSetDoc_('organizations/' + orgId + '/teams/MysteryMeat', firestoreFields_({
+    name: 'Mystery Meat',
+    label: 'Mystery Meat (20406)',
+    orgId: orgId,
+  }));
+
+  var items = firestoreListDocs_('inventory');
+  items.forEach(function (item) {
+    var fields = {};
+    Object.keys(item).forEach(function (k) { if (k !== 'id') fields[k] = item[k]; });
+    firestoreSetDoc_('organizations/' + orgId + '/inventory/' + item.id, firestoreFields_(fields));
+
+    var logs = firestoreListDocs_('inventory/' + item.id + '/log');
+    logs.forEach(function (log) {
+      var logFields = {};
+      Object.keys(log).forEach(function (k) { if (k !== 'id') logFields[k] = log[k]; });
+      firestoreSetDoc_('organizations/' + orgId + '/inventory/' + item.id + '/log/' + log.id, firestoreFields_(logFields));
+    });
+  });
+
+  Logger.log('Migrated ' + items.length + ' inventory items to organizations/' + orgId);
+  return { ok: true, orgId: orgId, itemsMigrated: items.length };
+}
+
+/**
  * Run manually from the editor, once, after TEAMS is populated and
  * FIREBASE_SERVICE_ACCOUNT_JSON is set. Creates/updates the teams/{teamKey}
  * doc for every team — the one Firestore write app users can never make
@@ -1254,7 +1438,7 @@ function firestoreParseDoc_(doc) {
 function seedTeamDocs_() {
   var results = [];
   Object.keys(TEAMS).forEach(function(teamKey) {
-    var team = TEAMS[teamKey];
+    var team = teamConfig_(teamKey);
     firestoreSetDoc_('teams/' + teamKey, firestoreFields_({
       calendarId: team.calendarId || '',
       mentors: team.mentors || [],
@@ -1292,7 +1476,7 @@ function migrateToFirestore_() {
 }
 
 function migrateTeamToFirestore_(teamKey) {
-  var team = TEAMS[teamKey];
+  var team = teamConfig_(teamKey);
   var ss = SpreadsheetApp.openById(team.sheetId);
   var mentors = team.mentors || [];
 

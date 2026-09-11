@@ -54,6 +54,7 @@
     <button class="tab-btn" data-tab="orders">Orders</button>
     <button class="tab-btn" data-tab="inventory">Inventory</button>
     <button class="tab-btn" data-tab="people">People</button>
+    <button class="tab-btn" data-tab="organizations">Organizations</button>
   </div>
   <div class="tab-group" data-group="reports">
     <button class="tab-btn" data-tab="season">Season</button>
@@ -395,6 +396,53 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="organizations">
+    <section class="group">
+      <h2>Organizations</h2>
+      <p class="card-meta">Every organization and team in this dashboard. Creating a team here needs no code change or redeploy.</p>
+      <div id="organizations-tree"></div>
+    </section>
+    <section class="group">
+      <h2>Add a team to your organization</h2>
+      <p class="card-meta">Uses the mentor passcode you already entered for this team — it must belong to the same organization.</p>
+      <form class="add-form" id="add-team-form">
+        <div class="row">
+          <input type="text" name="name" placeholder="Team name (e.g. Circuit Breakers)" required>
+          <input type="text" name="label" placeholder="Display label (optional, e.g. Circuit Breakers (12345))">
+        </div>
+        <button type="submit">Create team</button>
+      </form>
+      <div id="add-team-result"></div>
+    </section>
+    <section class="group">
+      <h2>Add a new organization</h2>
+      <p class="card-meta">Site-admin only — creates the organization plus its first team.</p>
+      <form class="add-form" id="add-org-form">
+        <div class="row">
+          <input type="text" name="orgName" placeholder="Organization name (e.g. BWS)" required>
+          <input type="password" name="siteAdminPasscode" placeholder="Site-admin passcode" required>
+        </div>
+        <div class="row">
+          <input type="text" name="name" placeholder="First team name" required>
+          <input type="text" name="label" placeholder="Display label (optional)">
+        </div>
+        <button type="submit">Create organization</button>
+      </form>
+      <div id="add-org-result"></div>
+    </section>
+    <section class="group">
+      <h2>Look up a team's passcodes</h2>
+      <form class="add-form" id="lookup-passcodes-form">
+        <div class="row">
+          <input type="text" name="teamKey" placeholder="Team key" required>
+          <input type="password" name="mentorPasscode" placeholder="That team's mentor passcode" required>
+        </div>
+        <button type="submit">Look up</button>
+      </form>
+      <div id="lookup-passcodes-result"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="checkin">
     <section class="group">
       <h2>Due this week</h2>
@@ -496,5 +544,6 @@
 <script src="budget.js?v=7a9bc0c"></script>
 <script src="inventory.js?v=7a9bc0c"></script>
 <script src="people.js?v=7a9bc0c"></script>
+<script src="organizations.js?v=7a9bc0c"></script>
 </body>
 </html>
