@@ -752,6 +752,21 @@ section.group.group-alert h2 {
   border-bottom: 2px solid var(--accent);
 }
 
+.todo-section-heading {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  margin: 14px 0 8px;
+}
+
+.todo-section-heading:first-of-type {
+  margin-top: 0;
+}
+
+.todo-section-heading.urgency-red { color: var(--red); }
+.todo-section-heading.urgency-green { color: var(--green); }
+
 .todo-goal {
   background: var(--surface);
   border: 1px solid var(--border);

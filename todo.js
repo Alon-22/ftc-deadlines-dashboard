@@ -1,9 +1,9 @@
-// todo.js — To-Do tab: one printable weekly list per person, built from
-// goals due this calendar week, with addable/checkable sub-tasks. Every
-// sub-task is a row in the new Subtasks sheet tab (added via addSubtask,
-// checked off via toggleSubtask) — that tab IS the season-end judges
-// record, so nothing here needs a separate "save" step. Talks to the rest
-// of the app only through window.DB (see app.js).
+// todo.js — To-Do tab: one printable weekly list per person, split into
+// Overdue, Due this week, and Upcoming, with addable/checkable sub-tasks.
+// Every sub-task is a row in the new Subtasks sheet tab (added via
+// addSubtask, checked off via toggleSubtask) — that tab IS the season-end
+// judges record, so nothing here needs a separate "save" step. Talks to
+// the rest of the app only through window.DB (see app.js).
 
 (function () {
   'use strict';
@@ -56,31 +56,37 @@
     return (ownerStr || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
   }
 
+  // Sections shown per person, in display order — Overdue first since it's
+  // the most urgent, then this week, then everything still further out.
+  var SECTIONS = [
+    { key: 'overdue', label: 'Overdue', cls: 'urgency-red' },
+    { key: 'week', label: 'Due this week', cls: '' },
+    { key: 'upcoming', label: 'Upcoming', cls: 'urgency-green' },
+  ];
+
   function renderTodo(goals, subtasks) {
     el.list.innerHTML = '';
     var now = new Date();
     var thisStart = startOfWeek(now);
     var thisEnd = endOfDay(addDays(thisStart, 6));
 
-    var dueThisWeek = goals.filter(function (g) {
-      if (isDone(g) || !g.targetDate) return false;
-      var t = new Date(g.targetDate);
-      return t >= thisStart && t <= thisEnd;
-    });
+    var incomplete = goals.filter(function (g) { return !isDone(g) && g.targetDate; });
 
     var byOwner = {};
-    dueThisWeek.forEach(function (g) {
+    incomplete.forEach(function (g) {
+      var t = new Date(g.targetDate);
+      var bucket = t < thisStart ? 'overdue' : (t > thisEnd ? 'upcoming' : 'week');
       var names = ownerNames(g.owner);
       if (!names.length) names = ['(unassigned)'];
       names.forEach(function (name) {
-        if (!byOwner[name]) byOwner[name] = [];
-        byOwner[name].push(g);
+        if (!byOwner[name]) byOwner[name] = { overdue: [], week: [], upcoming: [] };
+        byOwner[name][bucket].push(g);
       });
     });
 
     var names = Object.keys(byOwner).sort();
     if (!names.length) {
-      el.list.innerHTML = '<p class="empty-state">Nobody has a goal due this week yet.</p>';
+      el.list.innerHTML = '<p class="empty-state">Nobody has any open goals with a target date yet.</p>';
       return;
     }
 
@@ -89,7 +95,7 @@
     });
   }
 
-  function buildPersonSection(name, goals, subtasks) {
+  function buildPersonSection(name, buckets, subtasks) {
     var section = document.createElement('div');
     section.className = 'todo-person';
 
@@ -97,8 +103,16 @@
     h3.textContent = name;
     section.appendChild(h3);
 
-    goals.forEach(function (goal) {
-      section.appendChild(buildGoalBlock(goal, subtasks));
+    SECTIONS.forEach(function (s) {
+      var goals = buckets[s.key];
+      if (!goals.length) return;
+      var heading = document.createElement('h4');
+      heading.className = 'todo-section-heading ' + s.cls;
+      heading.textContent = s.label;
+      section.appendChild(heading);
+      goals.forEach(function (goal) {
+        section.appendChild(buildGoalBlock(goal, subtasks));
+      });
     });
 
     return section;
