@@ -669,12 +669,28 @@
     if (isApproved) {
       var actions = document.createElement('div');
       actions.className = 'card-actions';
+      // Optional — lets whoever's about to actually place the order get
+      // the paper trail ready ahead of time. Only shown until a sheet
+      // exists; markOrderPlaced below generates one itself if this was
+      // never clicked, so either order works.
+      if (!order.sheetUrl) {
+        var sheetBtn = document.createElement('button');
+        sheetBtn.type = 'button';
+        sheetBtn.className = 'secondary';
+        sheetBtn.textContent = 'Create order sheet';
+        sheetBtn.title = 'Adds this order to your organization\'s shared vendor sheet';
+        sheetBtn.addEventListener('click', function () {
+          sheetBtn.disabled = true;
+          DB.post('createOrderSheetForOrder', order.id, {}, function (ok) { if (!ok) sheetBtn.disabled = false; });
+        });
+        actions.appendChild(sheetBtn);
+      }
       var placedBtn = document.createElement('button');
       placedBtn.type = 'button';
       placedBtn.textContent = 'Mark as ordered';
       placedBtn.title = 'Once you\'ve actually placed this order with the vendor';
       placedBtn.addEventListener('click', function () {
-        if (!window.confirm('Mark this ' + order.vendor + ' order as placed? This marks the parts Ordered and creates the paper-trail sheet.')) return;
+        if (!window.confirm('Mark this ' + order.vendor + ' order as placed? This marks the parts Ordered.')) return;
         placedBtn.disabled = true;
         DB.post('markOrderPlaced', order.id, {}, function () { placedBtn.disabled = false; });
       });

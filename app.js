@@ -403,10 +403,11 @@
       .catch(function (err) { cb(false, String(err)); });
   }
 
-  // Asks Code.gs to create the paper-trail sheet tab once an order is
-  // actually placed — see WRITE_HANDLERS.markOrderPlaced, which calls this
-  // right after that status change is already committed, so a failure here
-  // never blocks the write or leaves parts in a half-updated state.
+  // Asks Code.gs to append this order into the org's shared vendor sheet
+  // (see generateOrderSheet_ for the call sites — the Approved-stage
+  // "Create order sheet" button, and markOrderPlaced as a fallback if that
+  // wasn't clicked). A failure here never blocks the write it's attached
+  // to or leaves parts in a half-updated state.
   function createOrderSheet(vendor, parts, shippingCost, teamLabel, cb) {
     var team = teamConfig();
     if (!team) return cb(null, 'No team selected');
@@ -431,6 +432,24 @@
         cb({ sheetUrl: json.sheetUrl, sheetName: json.sheetName }, null);
       })
       .catch(function (err) { cb(null, String(err)); });
+  }
+
+  // Shared by markOrderPlaced and WRITE_HANDLERS.createOrderSheetForOrder
+  // — composes this order's current parts, asks createOrderSheet to
+  // append them to the org's shared vendor sheet, and saves the resulting
+  // link back onto the order. cb is optional (markOrderPlaced fires this
+  // and forgets; createOrderSheetForOrder needs the result to resolve or
+  // reject the Promise post() expects).
+  function generateOrderSheet_(order, cb) {
+    cb = cb || function () {};
+    var orderParts = (state.data.parts || []).filter(function (p) { return (order.partIds || []).indexOf(p.id) !== -1; });
+    var teamLabel = (teamConfig() || {}).label || state.team;
+    createOrderSheet(order.vendor, orderParts, order.shippingCost, teamLabel, function (result, err) {
+      if (!result || !result.sheetUrl) { cb(false, err); return; }
+      teamRef_().collection('orders').doc(order.id).update({ sheetUrl: result.sheetUrl })
+        .then(function () { cb(true, null); })
+        .catch(function (e) { cb(false, e.message); });
+    });
   }
 
   // Suggests a 1-5 point/difficulty value for a new goal via Gemini — a
@@ -2264,8 +2283,11 @@
     // the sign-off. Approving is a budget/permission decision, not proof the
     // purchase has actually been placed with the vendor yet (that's often a
     // separate person, sometimes hours or days later), so this deliberately
-    // does NOT touch the parts or generate the paper-trail sheet — see
-    // markOrderPlaced for that, once someone's actually bought it.
+    // does NOT touch the parts — see markOrderPlaced for that, once
+    // someone's actually bought it. It also doesn't generate the sheet
+    // itself; the "Create order sheet" button on the now-Approved card
+    // does (createOrderSheetForOrder below), whenever whoever's buying it
+    // wants the paperwork ready.
     approveOrder: function (id) {
       return teamRef_().collection('orders').doc(id).update({ status: 'Approved', approvedAt: new Date().toISOString() });
     },
@@ -2276,13 +2298,32 @@
       return teamRef_().collection('orders').doc(id).delete();
     },
 
+    // Manual "Create order sheet" button on an Approved (not yet ordered)
+    // card — lets whoever's about to actually place the order get the
+    // paper trail ready ahead of time, instead of only ever getting one at
+    // the later "Mark as ordered" step. The button only renders while
+    // order.sheetUrl is unset (see budget.js), and markOrderPlaced skips
+    // generating its own if this already ran — so an order only ever gets
+    // appended to the vendor sheet once.
+    createOrderSheetForOrder: function (id) {
+      var order = (state.data.orders || []).filter(function (o) { return o.id === id; })[0];
+      if (!order) return Promise.reject(new Error('Order not found'));
+      return new Promise(function (resolve, reject) {
+        generateOrderSheet_(order, function (ok, err) {
+          if (ok) resolve(); else reject(new Error(err || 'Could not create the order sheet'));
+        });
+      });
+    },
+
     // The actual "I just bought this" step, for an already-Approved order —
     // marks every part in the cart Ordered, linked back to this order (so
     // "did we get everything from this cart" has something to check
-    // against), then asks Code.gs to create the paper-trail sheet tab. That
-    // call is fire-and-forget: if it fails, the order is still correctly
-    // marked Ordered and parts are still correctly updated — a flaky Sheets
-    // API call should never block the write itself.
+    // against), then — if nobody already generated one via the Approved
+    // card's "Create order sheet" button — asks Code.gs to append it to
+    // the org's shared vendor sheet. That call is fire-and-forget: if it
+    // fails, the order is still correctly marked Ordered and parts are
+    // still correctly updated — a flaky Sheets API call should never block
+    // the write itself.
     //
     // A batch's part-updates and the order's own status update all commit
     // together or not at all — so if even one part in partIds had since
@@ -2319,10 +2360,7 @@
             console.error('Could not credit onOrder inventory for "' + p.item + '":', err);
           });
         });
-        var teamLabel = (teamConfig() || {}).label || state.team;
-        createOrderSheet(order.vendor, orderedParts, order.shippingCost, teamLabel, function (result) {
-          if (result && result.sheetUrl) ordersColl.doc(id).update({ sheetUrl: result.sheetUrl });
-        });
+        if (!order.sheetUrl) generateOrderSheet_(order);
       });
     },
 

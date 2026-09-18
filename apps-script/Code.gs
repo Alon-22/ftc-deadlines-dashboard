@@ -25,49 +25,75 @@
 
 // ===== Team registry =====================================================
 function handleRequest_(e, isPost) {
-  if (!TEAMS.MysteryMeat.purchaseSheetId) TEAMS.MysteryMeat.purchaseSheetId = '1NS1B9wblAvoalq04AKr5GUICudRIfcNHSGIQuXUWGwY';
   var result;
   try { var params = isPost ? JSON.parse(e.postData.contents) : (e.parameter || {}); if (params.action === 'mintToken') { result = mintToken_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode); } else if (params.action === 'uploadPhoto') { result = uploadPhoto_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'lookupPartPrice') { result = lookupPartPrice_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'sendPurchaseRequestEmail') { result = sendPurchaseRequestEmail_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrderSheet') { result = createOrderSheet_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'estimateDifficulty') { result = estimateDifficulty_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'reviewGoal') { result = reviewGoal_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createTeam') { result = createTeam_(params.team, params.view === 'mentor' ? 'mentor' : 'student', params.passcode, params.fields || {}); } else if (params.action === 'createOrganization') { result = createOrganization_(params.passcode, params.fields || {}); } else if (params.action === 'getTeamPasscodes') { result = getTeamPasscodes_(params.team, params.passcode); } else { result = isPost ? handleWrite_(params) : handleRead_(params); } } catch (err) { result = { ok: false, error: String(err && err.message ? err.message : err) }; }
   return jsonOut_(result);
   }
+  // One spreadsheet per ORGANIZATION (see orgPurchaseSheetId_), with one
+  // running tab per VENDOR inside it — every team in the org appends its
+  // approved orders for that vendor into the same tab (found by exact
+  // vendor-name match, created the first time that vendor is seen) rather
+  // than each call carving out a brand-new tab, so whoever's actually
+  // placing orders sees one running list per vendor instead of hunting
+  // across a pile of one-off, per-team tabs.
   function createOrderSheet_(teamKey, view, passcode, fields) {
   var team = teamConfig_(teamKey);
   if (!team) return { ok: false, error: 'Unknown team: ' + teamKey };
   if (!checkPasscode_(teamKey, view, passcode)) { return { ok: false, error: 'Invalid or missing passcode' }; }
-  if (!team.purchaseSheetId) return { ok: false, error: 'No purchase sheet configured for this team' };
+  if (!team.org) return { ok: false, error: 'This team is not part of an organization' };
   var vendor = (fields.vendor || '').trim();
   var parts = fields.parts || [];
   if (!vendor || !parts.length) return { ok: false, error: 'Missing vendor or parts' };
-  var ss = SpreadsheetApp.openById(team.purchaseSheetId);
+
+  var sheetId = orgPurchaseSheetId_(team.org);
+  var ss = SpreadsheetApp.openById(sheetId);
+  var sheet = ss.getSheetByName(vendor);
+  if (!sheet) {
+    sheet = ss.insertSheet(vendor);
+    var placeholder = ss.getSheetByName('Sheet1');
+    if (placeholder && ss.getSheets().length > 1) ss.deleteSheet(placeholder);
+  }
+
   var now = new Date();
-  var baseName = (now.getMonth() + 1) + '/' + now.getDate() + ' ' + vendor;
-  var name = baseName;
-  var suffix = 2;
-  while (ss.getSheetByName(name)) { name = baseName + ' (' + suffix + ')'; suffix++; }
-  var sheet = ss.insertSheet(name);
   var orderedDate = Utilities.formatDate(now, Session.getScriptTimeZone() || 'America/Los_Angeles', 'M/d/yyyy');
-  var rows = [['Purchase Request'], ['Team', fields.teamLabel || teamKey], ['Vendor', vendor], ['Date', orderedDate], [], ['Item', 'Link', 'Qty', 'Cost Each', 'Line Total', 'ordered Date', 'Received']];
+  var startRow = sheet.getLastRow() > 0 ? sheet.getLastRow() + 2 : 1; // leave one blank row between orders, none before the first
+
+  var headerRowCount = 4; // Team, Date, blank, item-header — rows before the item rows start
+  var rows = [
+    ['Team', fields.teamLabel || teamKey],
+    ['Date', orderedDate],
+    [],
+    ['Item', 'Link', 'Qty', 'Cost Each', 'Line Total', 'Received'],
+  ];
   var partsTotal = 0;
-  parts.forEach(function (p) { var qty = Number(p.qty) || 1; var cost = Number(p.cost) || 0; var lineTotal = qty * cost; partsTotal += lineTotal; rows.push([p.item || '', p.link || '', qty, cost, lineTotal, orderedDate, false]); });
+  parts.forEach(function (p) {
+    var qty = Number(p.qty) || 1;
+    var cost = Number(p.cost) || 0;
+    var lineTotal = qty * cost;
+    partsTotal += lineTotal;
+    rows.push([p.item || '', p.link || '', qty, cost, lineTotal, false]);
+  });
   var shipping = Number(fields.shippingCost) || 0;
-  var headerRowCount = 6;
-  var totalRowIndex = headerRowCount + parts.length + 2;
   rows.push([]);
   rows.push(['', '', '', 'Shipping', shipping]);
   rows.push(['', '', '', 'Total (with shipping)', partsTotal + shipping]);
+
   var width = rows.reduce(function (max, r) { return Math.max(max, r.length); }, 0);
   rows.forEach(function (r) { while (r.length < width) r.push(''); });
-  sheet.getRange(1, 1, rows.length, width).setValues(rows);
-  sheet.getRange(1, 1).setFontWeight('bold');
-  sheet.getRange(headerRowCount, 1, 1, width).setFontWeight('bold');
-  sheet.getRange(totalRowIndex - 1, 4, 2, 2).setFontWeight('bold');
-  sheet.getRange(headerRowCount + 1, 4, parts.length + 2, 2).setNumberFormat('$#,##0.00');
-  if (parts.length) sheet.getRange(headerRowCount + 1, 7, parts.length, 1).insertCheckboxes();
+
+  sheet.getRange(startRow, 1, rows.length, width).setValues(rows);
+  var headerRow = startRow + headerRowCount - 1;
+  sheet.getRange(headerRow, 1, 1, width).setFontWeight('bold');
+  var shippingRow = startRow + rows.length - 2;
+  sheet.getRange(shippingRow, 4, 2, 2).setFontWeight('bold');
+  sheet.getRange(headerRow + 1, 4, parts.length + 3, 2).setNumberFormat('$#,##0.00');
+  if (parts.length) sheet.getRange(headerRow + 1, 6, parts.length, 1).insertCheckboxes();
+
   var gid = sheet.getSheetId();
-  var url = 'https://docs.google.com/spreadsheets/d/' + team.purchaseSheetId + '/edit#gid=' + gid;
-  return { ok: true, sheetUrl: url, sheetName: name };
+  var url = 'https://docs.google.com/spreadsheets/d/' + sheetId + '/edit#gid=' + gid;
+  return { ok: true, sheetUrl: url, sheetName: sheet.getName() };
   }
-  
+
 const TEAMS = {
   MysteryMeat: {
     sheetId: '1xuNGLtx8PPptspuuv8CyQvoVTq1vhuHDQBuU1In-MZY',
@@ -102,6 +128,28 @@ function teamConfig_(teamKey) {
 
 function setTeamConfig_(teamKey, config) {
   PropertiesService.getScriptProperties().setProperty('TEAMCFG_' + teamKey, JSON.stringify(config));
+}
+
+function orgConfig_(orgId) {
+  var raw = PropertiesService.getScriptProperties().getProperty('ORGCFG_' + orgId);
+  return raw ? JSON.parse(raw) : {};
+}
+
+function setOrgConfig_(orgId, config) {
+  PropertiesService.getScriptProperties().setProperty('ORGCFG_' + orgId, JSON.stringify(config));
+}
+
+// The one purchase-tracking spreadsheet shared by every team in an org
+// (see createOrderSheet_) — created lazily on first use rather than at
+// org-creation time, so an org that already existed before this feature
+// did still picks one up automatically instead of needing a migration.
+function orgPurchaseSheetId_(orgId) {
+  var config = orgConfig_(orgId);
+  if (config.purchaseSheetId) return config.purchaseSheetId;
+  var sheet = SpreadsheetApp.create(orgId + ' Purchases');
+  config.purchaseSheetId = sheet.getId();
+  setOrgConfig_(orgId, config);
+  return config.purchaseSheetId;
 }
 
 function teamKeyExists_(teamKey) {
@@ -147,13 +195,14 @@ function createTeam_(teamKey, view, passcode, fields) {
 
 // Shared by createTeam_ (an existing mentor adding a team to their own
 // org) and createOrganization_ (a brand-new org's first team) — mints
-// fresh passcodes and a purchase-tracking sheet, and writes every piece
-// of state a team needs to actually work: its Script-Property config, its
-// passcodes, its public org/team directory entry, and the legacy global
-// /teams/{teamId} doc (mentors/calendarId) that app.js's subscribeToTeam
-// already reads for isMentorOwned filtering and "email the coaches" —
-// skipping that doc would silently leave a new team's mentor list empty
-// forever, since nothing else ever writes it.
+// fresh passcodes and writes every piece of state a team needs to
+// actually work: its Script-Property config, its passcodes, its public
+// org/team directory entry, and the legacy global /teams/{teamId} doc
+// (mentors/calendarId) that app.js's subscribeToTeam already reads for
+// isMentorOwned filtering and "email the coaches" — skipping that doc
+// would silently leave a new team's mentor list empty forever, since
+// nothing else ever writes it. No purchase sheet is provisioned here —
+// createOrderSheet_ shares one per org, created lazily on first order.
 function createTeamInOrg_(orgId, teamName, teamLabel) {
   var key = slugify_(teamName);
   if (!key) return { ok: false, error: 'Team name must include at least one letter or number' };
@@ -161,14 +210,12 @@ function createTeamInOrg_(orgId, teamName, teamLabel) {
 
   var studentPasscode = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
   var mentorPasscode = Utilities.getUuid().replace(/-/g, '').slice(0, 12);
-  var sheet = SpreadsheetApp.create(teamLabel || teamName || key);
 
   setTeamConfig_(key, {
     org: orgId,
     mentors: [],
     driveFolderId: null,
     calendarId: null,
-    purchaseSheetId: sheet.getId(),
   });
   setPasscode_(key, 'student', studentPasscode);
   setPasscode_(key, 'mentor', mentorPasscode);
