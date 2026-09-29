@@ -1477,6 +1477,32 @@ function setupOrgLayer_() {
 }
 
 /**
+ * Run manually from the editor, once per org, to seed
+ * organizations/{orgId}/subteams from whatever subteam/skill-area names
+ * (the goal "group" field) an existing team has already been using — so a
+ * brand-new team's goal-form dropdown isn't empty on day one. Distinct
+ * names only; each becomes a doc keyed by its own slug, so re-running this
+ * (e.g. against a second source team) only adds names not already present
+ * rather than duplicating.
+ */
+function migrateSubteamsFromTeam_(orgId, teamKey) {
+  var goals = firestoreListDocs_('teams/' + teamKey + '/goals');
+  var names = {};
+  goals.forEach(function (g) {
+    var name = (g.group || '').trim();
+    if (name) names[name] = true;
+  });
+  var subteamNames = Object.keys(names).sort();
+  subteamNames.forEach(function (name) {
+    var id = slugify_(name);
+    if (!id) return;
+    firestoreSetDoc_('organizations/' + orgId + '/subteams/' + id, firestoreFields_({ name: name }));
+  });
+  Logger.log('Seeded ' + subteamNames.length + ' subteams into organizations/' + orgId + ': ' + subteamNames.join(', '));
+  return { ok: true, orgId: orgId, count: subteamNames.length, names: subteamNames };
+}
+
+/**
  * Run manually from the editor, once, after TEAMS is populated and
  * FIREBASE_SERVICE_ACCOUNT_JSON is set. Creates/updates the teams/{teamKey}
  * doc for every team — the one Firestore write app users can never make

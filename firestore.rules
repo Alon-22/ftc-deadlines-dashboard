@@ -103,6 +103,13 @@ service cloud.firestore {
       allow read, write: if signedInAs(teamId);
     }
 
+    // Attendance: one doc per check-in ({name, date}) — both roles, same
+    // open collaboration as deadlines/parts above (a student checks
+    // themselves in, a mentor can add or remove an entry too).
+    match /teams/{teamId}/attendance/{id} {
+      allow read, write: if signedInAs(teamId);
+    }
+
     // Season Log: everyone can read the season history, but only a mentor
     // can write it — this is where "archive completed goals" (a batch
     // move of Done goals out of /goals and into /seasonLog, replacing the
@@ -158,6 +165,16 @@ service cloud.firestore {
       match /log/{logId} {
         allow read, write: if signedInAsOrg(orgId);
       }
+    }
+
+    // Subteam/skill-area names (Electronics, CAD, Outreach, ...), shared by
+    // every team in the org so a brand-new team's goal-form dropdown isn't
+    // empty on day one — both roles can read (it just feeds a dropdown),
+    // but only a mentor curates the list itself, same trust level as the
+    // People directory.
+    match /organizations/{orgId}/subteams/{id} {
+      allow read: if signedInAsOrg(orgId);
+      allow write: if signedInAsOrg(orgId) && isMentor();
     }
   }
 }
