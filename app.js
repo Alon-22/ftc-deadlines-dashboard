@@ -685,6 +685,11 @@
       recomputeAndRender();
     }, onSnapshotError_));
 
+    unsubscribers.push(teamRef.collection('attendance').onSnapshot(function (snap) {
+      ensureData_().attendance = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
     unsubscribers.push(teamRef.collection('orders').onSnapshot(function (snap) {
       ensureData_().orders = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
       recomputeAndRender();
@@ -697,6 +702,17 @@
     // team.
     unsubscribers.push(orgRef_().collection('inventory').onSnapshot(function (snap) {
       ensureData_().inventory = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      recomputeAndRender();
+    }, onSnapshotError_));
+
+    // Subteam/skill-area names — also org-scoped like inventory, so every
+    // team in the org shares one list instead of each starting from an
+    // empty goal-form dropdown. See populateAddGoalOptions, which unions
+    // this with whatever's already been typed on existing goals.
+    unsubscribers.push(orgRef_().collection('subteams').onSnapshot(function (snap) {
+      var subteams = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+      subteams.sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); });
+      ensureData_().subteams = subteams;
       recomputeAndRender();
     }, onSnapshotError_));
 
@@ -739,7 +755,7 @@
   }
 
   function ensureData_() {
-    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [], pendingDeletionItems: [], orders: [], inventory: [] };
+    if (!state.data) state.data = { items: [], seasonLog: [], views: [], subtasks: [], mentorNotes: [], comments: [], notebook: [], checklistItems: [], people: [], parts: [], mentors: [], activity: [], pendingDeletionItems: [], orders: [], inventory: [], subteams: [], attendance: [] };
     return state.data;
   }
 
@@ -912,9 +928,13 @@
   // Dropdowns for the "add a new goal" forms are built from names/subteams
   // already seen in the data, so picking one is the fast path and typing a
   // brand new one (via "Other") stays possible without a backend change.
+  // Subteam names also union in the org's formal subteams list (see
+  // subscribeToTeam), so a brand-new team's dropdown isn't empty just
+  // because nobody's typed a goal with that group yet.
   function populateAddGoalOptions(items) {
     var owners = {};
     var groups = {};
+    (state.data.subteams || []).forEach(function (s) { if (s.name) groups[s.name] = true; });
     items.forEach(function (i) {
       (i.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (n) { owners[n] = true; });
       if (i.group) groups[i.group] = true;
@@ -2208,6 +2228,18 @@
       return batch.commit();
     },
 
+    // Subteam names are org-scoped (orgRef_(), not teamRef_()) and
+    // mentor-write-only per Security Rules — every team in the org shares
+    // one list, managed from the Organizations tab.
+    addSubteam: function (id, fields) {
+      var name = (fields.name || '').trim();
+      return orgRef_().collection('subteams').add({ name: name });
+    },
+
+    deleteSubteam: function (id) {
+      return orgRef_().collection('subteams').doc(id).delete();
+    },
+
     // people is mentor-write-only per Security Rules — feeds the daily
     // digest email (Code.gs matches a goal's owner name against this list).
     addPerson: function (id, fields) {
@@ -2246,6 +2278,21 @@
 
     deletePart: function (id) {
       return teamRef_().collection('parts').doc(id).delete();
+    },
+
+    // One doc per check-in — both roles, same open trust level as parts
+    // above. A duplicate (same name, same date) is caught client-side in
+    // attendance.js before this ever gets called, not here.
+    checkIn: function (id, fields) {
+      return teamRef_().collection('attendance').add({
+        name: fields.name,
+        date: fields.date,
+        checkedInAt: new Date().toISOString(),
+      });
+    },
+
+    deleteAttendance: function (id) {
+      return teamRef_().collection('attendance').doc(id).delete();
     },
 
     // Mentor-only bulk status change (see budget.js's bulk-select bar) — one

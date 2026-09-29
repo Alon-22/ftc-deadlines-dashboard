@@ -14,6 +14,11 @@
 // switching teams first. Only expandable for teams in the signed-in
 // mentor's own org — firestore.rules' mentorInSameOrg is what actually
 // enforces that boundary; this is just matching UI to what will succeed.
+//
+// Each org (not each team) also has one Subteams panel — the shared list of
+// subteam/skill-area names every team in the org draws its goal-form
+// dropdown from (see app.js's populateAddGoalOptions and the
+// addSubteam/deleteSubteam handlers).
 
 (function () {
   'use strict';
@@ -33,6 +38,7 @@
   if (!el.tree) return; // no Organizations tab on this page
 
   var expandedTeam = null; // team key whose roster panel is open, one at a time
+  var subteamsExpanded = false; // whether the (single) org-level Subteams panel is open
 
   // app.js's own DOMContentLoaded listener (registered first, since app.js
   // loads before this file) is what actually creates the Firestore handle
@@ -80,6 +86,22 @@
       heading.textContent = org.name + (org.id === DB.state.org ? ' (your org)' : '');
       section.appendChild(heading);
 
+      // Subteam names are org-scoped (one shared list, not per-team) so
+      // this only ever appears once per org, not once per team row — and
+      // only for the mentor's own org, same reasoning as team rosters.
+      if (org.id === DB.state.org) {
+        var subteamsToggle = document.createElement('button');
+        subteamsToggle.type = 'button';
+        subteamsToggle.className = 'secondary';
+        subteamsToggle.textContent = subteamsExpanded ? 'Hide subteams' : 'Subteams';
+        subteamsToggle.addEventListener('click', function () {
+          subteamsExpanded = !subteamsExpanded;
+          loadTree();
+        });
+        section.appendChild(subteamsToggle);
+        if (subteamsExpanded) section.appendChild(buildSubteamsPanel_());
+      }
+
       if (!org.teams.length) {
         var empty = document.createElement('p');
         empty.className = 'card-meta';
@@ -111,7 +133,7 @@
       var toggleBtn = document.createElement('button');
       toggleBtn.type = 'button';
       toggleBtn.className = 'secondary';
-      toggleBtn.textContent = expandedTeam === team.key ? 'Hide members' : 'Members';
+      toggleBtn.textContent = expandedTeam === team.key ? 'Hide students' : 'Students';
       toggleBtn.addEventListener('click', function () {
         expandedTeam = expandedTeam === team.key ? null : team.key;
         loadTree();
@@ -142,7 +164,7 @@
     row.className = 'row';
     var nameInput = document.createElement('input');
     nameInput.type = 'text';
-    nameInput.placeholder = 'Name';
+    nameInput.placeholder = 'Student name';
     nameInput.required = true;
     row.appendChild(nameInput);
     var emailInput = document.createElement('input');
@@ -152,7 +174,7 @@
     form.appendChild(row);
     var addBtn = document.createElement('button');
     addBtn.type = 'submit';
-    addBtn.textContent = 'Add member';
+    addBtn.textContent = 'Add student';
     form.appendChild(addBtn);
 
     form.addEventListener('submit', function (e) {
@@ -169,15 +191,15 @@
   }
 
   function loadMembersInto_(teamKey, list) {
-    list.innerHTML = '<p class="card-meta">Loading members…</p>';
+    list.innerHTML = '<p class="card-meta">Loading students…</p>';
     DB.loadTeamMembers(teamKey, function (members, err) {
       list.innerHTML = '';
       if (err) {
-        list.innerHTML = '<p class="empty-state">Could not load members: ' + DB.escapeHtml(err) + '</p>';
+        list.innerHTML = '<p class="empty-state">Could not load students: ' + DB.escapeHtml(err) + '</p>';
         return;
       }
       if (!members.length) {
-        list.innerHTML = '<p class="empty-state">No members added yet.</p>';
+        list.innerHTML = '<p class="empty-state">No students added yet.</p>';
         return;
       }
       members.forEach(function (m) {
@@ -196,6 +218,73 @@
         row.appendChild(removeBtn);
         list.appendChild(row);
       });
+    });
+  }
+
+  // Subteam names feed the goal-form "subteam / skill area" dropdowns (see
+  // app.js's populateAddGoalOptions) — org-scoped so every team in the org
+  // shares one list. DB.state.data.subteams is already live (subscribeToTeam
+  // has an onSnapshot on it), so this reads straight from there instead of
+  // a separate fetch.
+  function buildSubteamsPanel_() {
+    var panel = document.createElement('div');
+    panel.className = 'org-tree-members-panel';
+
+    var list = document.createElement('div');
+    list.className = 'org-tree-members-list';
+    panel.appendChild(list);
+    renderSubteamsInto_(list);
+
+    var form = document.createElement('form');
+    form.className = 'add-form org-tree-add-member-form';
+    var row = document.createElement('div');
+    row.className = 'row';
+    var nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Subteam name (e.g. Electronics)';
+    nameInput.required = true;
+    row.appendChild(nameInput);
+    form.appendChild(row);
+    var addBtn = document.createElement('button');
+    addBtn.type = 'submit';
+    addBtn.textContent = 'Add subteam';
+    form.appendChild(addBtn);
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var name = nameInput.value.trim();
+      if (!name) return;
+      DB.post('addSubteam', null, { name: name }, function (ok) {
+        if (ok) { form.reset(); renderSubteamsInto_(list); }
+      });
+    });
+    panel.appendChild(form);
+
+    return panel;
+  }
+
+  function renderSubteamsInto_(list) {
+    var subteams = DB.state.data.subteams || [];
+    list.innerHTML = '';
+    if (!subteams.length) {
+      list.innerHTML = '<p class="empty-state">No subteams added yet.</p>';
+      return;
+    }
+    subteams.forEach(function (s) {
+      var row = document.createElement('div');
+      row.className = 'org-tree-member-row';
+      var text = document.createElement('span');
+      text.textContent = s.name;
+      row.appendChild(text);
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'secondary';
+      removeBtn.textContent = 'Remove';
+      removeBtn.addEventListener('click', function () {
+        DB.post('deleteSubteam', s.id, {}, function () { renderSubteamsInto_(list); });
+      });
+      row.appendChild(removeBtn);
+      list.appendChild(row);
     });
   }
 

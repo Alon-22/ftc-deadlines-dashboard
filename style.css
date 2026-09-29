@@ -1480,3 +1480,32 @@ section.group.group-alert h2 {
 .org-tree-add-member-form {
   margin-top: 8px;
 }
+
+/* ===== Attendance ===== */
+
+.attendance-day {
+  margin-bottom: 20px;
+}
+
+.attendance-day h3 {
+  font-size: 1.05rem;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.attendance-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.attendance-name-row:last-child {
+  border-bottom: none;
+}
+
+.attendance-name-row span {
+  flex: 1;
+}

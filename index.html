@@ -47,6 +47,7 @@
     <button class="tab-btn" data-tab="budget">Budget</button>
     <button class="tab-btn" data-tab="orders">Orders</button>
     <button class="tab-btn" data-tab="inventory">Inventory</button>
+    <button class="tab-btn" data-tab="attendance">Attendance</button>
   </div>
   <div class="tab-group" data-group="reports">
     <button class="tab-btn" data-tab="season">Season</button>
@@ -338,6 +339,27 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="attendance">
+    <section class="group">
+      <h2>Attendance</h2>
+      <p class="card-meta">Check yourself in for today's meeting or work session.</p>
+      <form class="add-form" id="add-attendance-form">
+        <div class="row">
+          <select id="attendance-name" required>
+            <option value="">Select your name…</option>
+            <option value="__other__">Other (type below)…</option>
+          </select>
+          <input type="text" id="attendance-name-other" placeholder="Type your name" style="display:none;">
+          <input type="date" id="attendance-date" required>
+        </div>
+        <button type="submit">Check in</button>
+      </form>
+    </section>
+    <section class="group">
+      <div id="attendance-log"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="competition-day">
     <section class="group">
       <h2>Competition Day Checklist</h2>
@@ -454,5 +476,6 @@
 <script src="checklist.js?v=2e4ef16"></script>
 <script src="budget.js?v=2e4ef16"></script>
 <script src="inventory.js?v=2e4ef16"></script>
+<script src="attendance.js?v=2e4ef16"></script>
 </body>
 </html>

@@ -53,6 +53,7 @@
     <button class="tab-btn" data-tab="budget">Budget</button>
     <button class="tab-btn" data-tab="orders">Orders</button>
     <button class="tab-btn" data-tab="inventory">Inventory</button>
+    <button class="tab-btn" data-tab="attendance">Attendance</button>
     <button class="tab-btn" data-tab="people">People</button>
     <button class="tab-btn" data-tab="organizations">Organizations</button>
   </div>
@@ -363,6 +364,27 @@
     </section>
   </div>
 
+  <div class="tab-panel" data-tab="attendance">
+    <section class="group">
+      <h2>Attendance</h2>
+      <p class="card-meta">Check in for today's meeting or work session — a mentor can log for someone else too.</p>
+      <form class="add-form" id="add-attendance-form">
+        <div class="row">
+          <select id="attendance-name" required>
+            <option value="">Select a name…</option>
+            <option value="__other__">Other (type below)…</option>
+          </select>
+          <input type="text" id="attendance-name-other" placeholder="Type a name" style="display:none;">
+          <input type="date" id="attendance-date" required>
+        </div>
+        <button type="submit">Check in</button>
+      </form>
+    </section>
+    <section class="group">
+      <div id="attendance-log"></div>
+    </section>
+  </div>
+
   <div class="tab-panel" data-tab="competition-day">
     <section class="group">
       <h2>Competition Day Checklist</h2>
@@ -399,7 +421,7 @@
   <div class="tab-panel" data-tab="organizations">
     <section class="group">
       <h2>Organizations</h2>
-      <p class="card-meta">Every organization and team in this dashboard. Creating a team here needs no code change or redeploy.</p>
+      <p class="card-meta">Every organization and team in this dashboard. Creating a team here needs no code change or redeploy. Click a team's "Students" button below to add or remove students on its roster.</p>
       <div id="organizations-tree"></div>
     </section>
     <section class="group">
@@ -543,6 +565,7 @@
 <script src="checklist.js?v=2e4ef16"></script>
 <script src="budget.js?v=2e4ef16"></script>
 <script src="inventory.js?v=2e4ef16"></script>
+<script src="attendance.js?v=2e4ef16"></script>
 <script src="people.js?v=2e4ef16"></script>
 <script src="organizations.js?v=2e4ef16"></script>
 </body>
