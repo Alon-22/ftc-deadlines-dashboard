@@ -22,7 +22,7 @@
   if (el.dateInput && !el.dateInput.value) el.dateInput.value = todayIso_();
 
   DB.onData(function (data) {
-    if (el.nameSelect) fillNames_(data.people || []);
+    if (el.nameSelect) fillNames_(data.items || []);
     if (el.log) renderLog_(data.attendance || []);
   });
 
@@ -33,27 +33,34 @@
     return d.getFullYear() + '-' + mm + '-' + dd;
   }
 
-  // Names come from the People directory (the same roster the
-  // Organizations tab's "Students" panel manages) — falls back to "Other"
-  // for anyone not added there yet.
-  function fillNames_(people) {
+  // Names come from the task list — every distinct name already used as a
+  // goal/deadline owner (same comma-separated "owner" field the goal forms
+  // use) — rather than a separate roster, so the dropdown is populated by
+  // whoever's already been assigned work, with no extra data entry.
+  function fillNames_(items) {
+    var names = {};
+    items.forEach(function (i) {
+      (i.owner || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (n) { names[n] = true; });
+    });
+    var sorted = Object.keys(names).sort();
+
     var current = el.nameSelect.value;
     el.nameSelect.innerHTML = '';
     var placeholder = document.createElement('option');
     placeholder.value = '';
     placeholder.textContent = 'Select your name…';
     el.nameSelect.appendChild(placeholder);
-    people.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); }).forEach(function (p) {
+    sorted.forEach(function (name) {
       var opt = document.createElement('option');
-      opt.value = p.name;
-      opt.textContent = p.name;
+      opt.value = name;
+      opt.textContent = name;
       el.nameSelect.appendChild(opt);
     });
     var otherOpt = document.createElement('option');
     otherOpt.value = '__other__';
     otherOpt.textContent = 'Other (type below)…';
     el.nameSelect.appendChild(otherOpt);
-    if (current && (people.some(function (p) { return p.name === current; }) || current === '__other__')) {
+    if (current && (sorted.indexOf(current) !== -1 || current === '__other__')) {
       el.nameSelect.value = current;
     }
   }

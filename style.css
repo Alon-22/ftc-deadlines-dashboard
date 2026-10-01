@@ -474,6 +474,8 @@ section.group.group-alert h2 {
   border-bottom-color: var(--accent);
 }
 
+.tab-bar.single-tab { display: none; }
+
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 

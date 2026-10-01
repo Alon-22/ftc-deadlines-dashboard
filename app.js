@@ -234,6 +234,13 @@
   function showGroup_(group) {
     el.tabGroupButtons.forEach(function (btn) { btn.classList.toggle('active', btn.dataset.group === group); });
     el.tabGroups.forEach(function (g) { g.classList.toggle('active', g.dataset.group === group); });
+    // A group with only one tab (e.g. Attendance) doesn't need its own
+    // redundant sub-tab row underneath the category pill — hide the whole
+    // second-level bar for those instead of showing a single lonely button.
+    var activeGroupEl = el.tabGroups.filter(function (g) { return g.dataset.group === group; })[0];
+    var singleTab = activeGroupEl && activeGroupEl.querySelectorAll('.tab-btn').length <= 1;
+    var tabBar = activeGroupEl && activeGroupEl.closest('.tab-bar');
+    if (tabBar) tabBar.classList.toggle('single-tab', !!singleTab);
   }
 
   function showTab(name) {
